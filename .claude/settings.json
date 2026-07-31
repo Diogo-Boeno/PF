@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(stylua --check src/ReplicatedStorage/Shared/Modules/SpiderGait.luau src/StarterPlayerScripts/Controllers/SpiderController.luau)",
+      "Bash(echo \"=== stylua exit: $? ===\")",
+      "Bash(selene src/ReplicatedStorage/Shared/Modules/SpiderGait.luau src/StarterPlayerScripts/Controllers/SpiderController.luau)",
+      "Bash(echo \"=== selene exit: $? ===\")"
+    ]
+  }
+}
