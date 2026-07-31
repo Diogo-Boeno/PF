@@ -4,7 +4,12 @@
       "Bash(stylua --check src/ReplicatedStorage/Shared/Modules/SpiderGait.luau src/StarterPlayerScripts/Controllers/SpiderController.luau)",
       "Bash(echo \"=== stylua exit: $? ===\")",
       "Bash(selene src/ReplicatedStorage/Shared/Modules/SpiderGait.luau src/StarterPlayerScripts/Controllers/SpiderController.luau)",
-      "Bash(echo \"=== selene exit: $? ===\")"
+      "Bash(echo \"=== selene exit: $? ===\")",
+      "WebFetch(domain:create.roblox.com)",
+      "PowerShell(stylua src/StarterCharacterScripts/SpiderGait.client.luau)",
+      "PowerShell(selene src/StarterCharacterScripts/SpiderGait.client.luau)",
+      "PowerShell(stylua src/ReplicatedStorage/Shared/Modules/ProceduralModule.luau src/StarterCharacterScripts/SpiderGait.client.luau)",
+      "PowerShell(selene src/ReplicatedStorage/Shared/Modules/ProceduralModule.luau src/StarterCharacterScripts/SpiderGait.client.luau)"
     ]
   }
 }
