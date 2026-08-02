@@ -8,3 +8,8 @@ realm = "shared"
 
 vide = "centau/vide@0.4.0"
 ui-labs = "pepeeltoro41/ui-labs@2.4.2"
+ripple = "littensy/ripple@0.10.2"
+charm = "littensy/charm@0.11.0"
+rng = "ernisto/rng@1.0.0-rc.3"
+quickzone = "ldgerrits/quickzone@1.4.6"
+profilestore = "2jammers/profilestore@0.1.0"
