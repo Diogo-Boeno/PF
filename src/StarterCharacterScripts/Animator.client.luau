@@ -43,7 +43,7 @@ local animNames = {
 				{ id = "rbxassetid://136817404669130", weight = 10 }
 			},
 	fall = 	{
-				{ id = "rbxassetid://108927240676352", weight = 10 }
+				{ id = "rbxassetid://85195769567161", weight = 10 }
 			},
 	climb = {
 				{ id = "http://www.roblox.com/asset/?id=180436334", weight = 10 }

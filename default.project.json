@@ -11,6 +11,9 @@
       "$ignoreUnknownInstances": true,
       "Packages": {
         "$path": "Packages"
+      },
+      "Data": {
+        "$path": "data/shared"
       }
     },
     "ServerScriptService": {
@@ -19,7 +22,10 @@
     },
     "ServerStorage": {
       "$path": "src/ServerStorage",
-      "$ignoreUnknownInstances": true
+      "$ignoreUnknownInstances": true,
+      "Data": {
+        "$path": "data/server"
+      }
     },
     "StarterPlayer": {
       "StarterPlayerScripts": {

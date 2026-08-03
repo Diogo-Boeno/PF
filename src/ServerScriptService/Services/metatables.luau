@@ -57,7 +57,5 @@ function State.new(initialData)
         end
     })
 
-
-
     return proxy
 end

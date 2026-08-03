@@ -44,7 +44,10 @@
       "Read(//c/Users/diogo/AppData/Local/Temp/luaushot2/**)",
       "Bash(awk '{printf \"%s%s \", $2, \\($1>1?\"\\(x\"$1\"\\)\":\"\"\\)}')",
       "Read(//c/Users/diogo/AppData/Local/Temp/luaufix/**)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(stylua src/StarterPlayerScripts/Controllers/MovementController.luau data/shared/Movement.luau)",
+      "Bash(selene src/StarterPlayerScripts/Controllers/MovementController.luau data/shared/Movement.luau)",
+      "Bash(echo \"--- exit: $? ---\")"
     ]
   }
 }
