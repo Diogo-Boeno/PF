@@ -30,8 +30,6 @@ export type WindowProps = {
 
 local HEADER_HEIGHT = 36
 
--- signature detail of the design language: thin L-brackets floating just
--- outside each corner, like crop marks on a technical drawing
 local BRACKET_ARM = 12
 local BRACKET_GAP = 5
 

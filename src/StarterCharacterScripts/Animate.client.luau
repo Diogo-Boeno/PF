@@ -2,13 +2,21 @@
 
 local Figure = script.Parent
 local Torso = Figure:WaitForChild("Torso")
-local RightShoulder = Torso:WaitForChild("Right Shoulder")
-local LeftShoulder = Torso:WaitForChild("Left Shoulder")
-local RightHip = Torso:WaitForChild("Right Hip")
-local LeftHip = Torso:WaitForChild("Left Hip")
-local Neck = Torso:WaitForChild("Neck")
 local Humanoid = Figure:WaitForChild("Humanoid")
 local pose = "Standing"
+
+-- Custom rig: no arms at all, and the limbs drop the stock R6 spacing (RightLeg,
+-- not "Right Leg"), so the joint names differ too. Resolve a motor by the part it
+-- drives instead of by name, and tolerate absence -- WaitForChild on a joint this
+-- rig never had hangs the script before a single animation plays.
+local function hipFor(legName)
+	for _, child in Torso:GetChildren() do
+		if child:IsA("Motor6D") and child.Part1 and child.Part1.Name == legName then
+			return child
+		end
+	end
+	return nil
+end
 
 local FFlagUserAnimateRemoveEmoteChatHook
 do
@@ -30,20 +38,20 @@ local currentAnimSpeed = 1.0
 local animTable = {}
 local animNames = {
 	idle = 	{
-				{ id = "rbxassetid://106107645064929", weight = 9 },
-				{ id = "rbxassetid://106107645064929", weight = 1 }
+				{ id = "rbxassetid://82047487788878", weight = 9 },
+				{ id = "rbxassetid://82047487788878", weight = 1 }
 			},
 	walk = 	{
-				{ id = "rbxassetid://127703320265931", weight = 10 }
+				{ id = "rbxassetid://135081540105863", weight = 10 }
 			},
 	run = 	{
 				{ id = "rbxassetid://127703320265931", weight = 10 }
 			},
 	jump = 	{
-				{ id = "rbxassetid://136817404669130", weight = 10 }
+				{ id = "rbxassetid://98252822900983", weight = 10 }
 			},
 	fall = 	{
-				{ id = "rbxassetid://85195769567161", weight = 10 }
+				{ id = "rbxassetid://125655412229795", weight = 10 }
 			},
 	climb = {
 				{ id = "http://www.roblox.com/asset/?id=180436334", weight = 10 }
@@ -62,7 +70,7 @@ local animNames = {
 				{ id = "http://www.roblox.com/asset/?id=129967478", weight = 10 }
 			},
 	wave = {
-				{ id = "http://www.roblox.com/asset/?id=128777973", weight = 10 }
+				{ id = "rbxassetid://77403896982635", weight = 10 }
 			},
 	point = {
 				{ id = "http://www.roblox.com/asset/?id=128853357", weight = 10 }
@@ -83,7 +91,7 @@ local animNames = {
 				{ id = "http://www.roblox.com/asset/?id=182491423", weight = 10 }
 			},
 	laugh = {
-				{ id = "http://www.roblox.com/asset/?id=129423131", weight = 10 }
+				{ id = "rbxassetid://112196430986414", weight = 10 }
 			},
 	cheer = {
 				{ id = "http://www.roblox.com/asset/?id=129423030", weight = 10 }
@@ -448,14 +456,8 @@ function animateTool()
 	end
 end
 
-function moveSit()
-	RightShoulder.MaxVelocity = 0.15
-	LeftShoulder.MaxVelocity = 0.15
-	RightShoulder:SetDesiredAngle(3.14 /2)
-	LeftShoulder:SetDesiredAngle(-3.14 /2)
-	RightHip:SetDesiredAngle(3.14 /2)
-	LeftHip:SetDesiredAngle(-3.14 /2)
-end
+-- moveSit() was dropped: it only posed shoulders and hips by stock R6 name, was
+-- already dead code in the upstream script, and half its joints don't exist here.
 
 local lastTick = 0
 
@@ -465,7 +467,6 @@ function move(time)
   	local deltaTime = time - lastTick
   	lastTick = time
 
-	local climbFudge = 0
 	local setAngles = false
 
   	if (jumpAnimTime > 0) then
@@ -490,10 +491,17 @@ function move(time)
 	if (setAngles) then
 		local desiredAngle = amplitude * math.sin(time * frequency)
 
-		RightShoulder:SetDesiredAngle(desiredAngle + climbFudge)
-		LeftShoulder:SetDesiredAngle(desiredAngle - climbFudge)
-		RightHip:SetDesiredAngle(-desiredAngle)
-		LeftHip:SetDesiredAngle(-desiredAngle)
+		-- Arm half of the fallback sway is gone with the arms; hips are resolved per
+		-- call so a joint that replicates late still gets picked up.
+		local rightHip = hipFor("RightLeg")
+		if rightHip then
+			rightHip:SetDesiredAngle(-desiredAngle)
+		end
+
+		local leftHip = hipFor("LeftLeg")
+		if leftHip then
+			leftHip:SetDesiredAngle(-desiredAngle)
+		end
 	end
 
 	-- Tool Animation handling
@@ -562,8 +570,9 @@ playAnimation("idle", 0.1, Humanoid)
 pose = "Standing"
 
 while Figure.Parent ~= nil do
-	local _, time = wait(0.1)
-	move(time)
+	task.wait(0.1)
+	-- task.wait() has no second return; move() only ever uses this as a monotonic clock.
+	move(os.clock())
 end
 
 
