@@ -120,6 +120,29 @@ swing.
 Templates ficam em `ReplicatedStorage/Weapons/` **no place file** — mesh não vai pro git,
 e `$ignoreUnknownInstances` impede o Rojo de apagar.
 
+### Hotbar
+
+`HotbarUI.Holder` no StarterGui, montada à mão: 10 `ImageButton` de nome `1`..`9`, `0` —
+**nome do botão é a tecla**, na ordem física do teclado, não na ordem do grid.
+
+Cada botão tem `CellNum` (serial fixo, **nunca escreva nele**) e `ContentName`, que o
+`HotbarController` preenche com o nome do model da arma.
+
+O controller também escreve o `LayoutOrder` de cada botão e força
+`SortOrder = LayoutOrder` no grid. Sem isso os dez empatam em `0` e o grid cai na ordem
+dos filhos, que **difere entre edit mode e runtime** — o `0` pulava pra frente do `1` no
+Play. Não ordene a hotbar arrastando no Explorer; não sobrevive à replicação.
+
+O inventário é um atributo por slot: `Slot1`..`Slot9`, `Slot0`, valor = id do catálogo.
+Slot sem atributo é slot vazio. A UI decide quantos slots existem — o controller varre
+os filhos do `Holder`, não uma lista no código.
+
+Tecla ou clique no slot já equipado **desequipa** (pede `unarmed`). O toggle é decidido
+no client; o server valida igual, então id fora do catálogo também cai em desarmado.
+
+`WeaponService` concede uma Sword no `Slot1` ao entrar. É **grant de teste**, marcado no
+arquivo, some quando houver inventário de verdade.
+
 ## Estrutura
 
 ```
@@ -158,6 +181,10 @@ adicione ao Theme.
 Componente é **controlado**: `value: () -> T` mais `on<Ação>: (T) -> ()`, sem estado
 interno. Existem hoje: Button, CloseButton, Window, Checkbox, TextInput, ModelViewport,
 AutoScale, HitCircle.
+
+**Nem toda UI é Vide.** Vide é para o kit reutilizável em `UI/Common/`. Tela montada à
+mão no Studio (hoje: `HotbarUI`) é dirigida por Controller que lê a hierarquia pronta —
+não reconstrua em Vide sem pedir. Essa UI vive no place file, não no Rojo.
 
 ## Estado
 

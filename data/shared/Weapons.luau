@@ -5,6 +5,9 @@ local Weapons = {
 	unarmed = 0,
 	folder = "Weapons",
 
+	-- Prefix + button name: Slot1..Slot9, Slot0
+	slotAttribute = "Slot",
+
 	-- Animation poses key off part name; shared swings need one
 	rootName = "Handle",
 
