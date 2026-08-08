@@ -47,7 +47,17 @@
       "WebFetch(domain:github.com)",
       "Bash(stylua src/StarterPlayerScripts/Controllers/MovementController.luau data/shared/Movement.luau)",
       "Bash(selene src/StarterPlayerScripts/Controllers/MovementController.luau data/shared/Movement.luau)",
-      "Bash(echo \"--- exit: $? ---\")"
+      "Bash(echo \"--- exit: $? ---\")",
+      "Bash(git clone *)",
+      "Bash([ -e \"$DST\" ])",
+      "Bash(exit 1)",
+      "Bash(cp -r C:/Users/diogo/AppData/Local/Temp/claude/c--Users-diogo-Projects-PF/0efbe164-9556-406e-a753-1f6efe3f453e/scratchpad/SmartBone/src/SmartBone c:/Users/diogo/Projects/PF/src/ReplicatedStorage/SmartBone)",
+      "Bash(cp C:/Users/diogo/AppData/Local/Temp/claude/c--Users-diogo-Projects-PF/0efbe164-9556-406e-a753-1f6efe3f453e/scratchpad/SmartBone/LICENSE c:/Users/diogo/Projects/PF/src/ReplicatedStorage/SmartBone/LICENSE)",
+      "PowerShell(rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\"; if \\($?\\) { \"BUILD OK\" })",
+      "PowerShell(stylua src/StarterPlayerScripts/Controllers/SmartBoneController.luau; if \\($?\\) { \"STYLUA OK\" }; selene src/StarterPlayerScripts/Controllers/SmartBoneController.luau; if \\($?\\) { \"SELENE OK\" }; rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\"; if \\($?\\) { \"BUILD OK\" })"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\diogo\\.claude\\projects\\c--Users-diogo-Projects-PF\\memory"
     ]
   }
 }

@@ -20,8 +20,8 @@ local Movement = {
 	hardLandingSpeed = 35,
 
 	animation = {
-		sprint = "rbxassetid://134243959977279",
-		land = "rbxassetid://117671087178023",
+		sprint = "rbxassetid://113853542577722",
+		land = "rbxassetid://83965390015351",
 	},
 }
 

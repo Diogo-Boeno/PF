@@ -194,6 +194,12 @@ local toolTransitionTime = 0.1
 local fallTransitionTime = 0.3
 local jumpMaxLimbVelocity = 0.75
 
+-- Floor for "is this character moving". Upstream used 0.01, which is a 0.06% margin
+-- against a walk of 16 -- a landing leaves ~0.01 stud/s of residual drift and trips
+-- it, and Humanoid.Running never fires again once that decays, so the pose sticks on
+-- Running forever. Measured: a landing at 0.009 settled correctly, one at 0.010 hung.
+local MOVING_SPEED = 0.5
+
 -- functions
 
 function stopAllAnimations()
@@ -359,7 +365,7 @@ end
 function onRunning(speed)
 	speed /= getRigScale()
 
-	if speed > 0.01 then
+	if speed > MOVING_SPEED then
 		playAnimation("walk", 0.1, Humanoid)
 		if currentAnimInstance and currentAnimInstance.AnimationId == "http://www.roblox.com/asset/?id=180426354" then
 			setAnimationSpeed(speed / 14.5)
@@ -479,7 +485,21 @@ function move(time)
 		playAnimation("sit", 0.5, Humanoid)
 		return
 	elseif (pose == "Running") then
-		playAnimation("walk", 0.1, Humanoid)
+		-- Humanoid.Running is edge-triggered, so pose can be stale here: nothing
+		-- re-fires it once a landing's residual drift decays to zero, and this branch
+		-- would then force walk on a character standing still. move() already runs at
+		-- 10 Hz, so settle it against the velocity that actually exists.
+		local root = Humanoid.RootPart
+		local planarSpeed = 0
+		if root then
+			planarSpeed = (root.AssemblyLinearVelocity * Vector3.new(1, 0, 1)).Magnitude
+		end
+
+		if planarSpeed > MOVING_SPEED then
+			playAnimation("walk", 0.1, Humanoid)
+		else
+			onRunning(0)
+		end
 	elseif (pose == "Dead" or pose == "GettingUp" or pose == "FallingDown" or pose == "Seated" or pose == "PlatformStanding") then
 --		print("Wha " .. pose)
 		stopAllAnimations()
