@@ -216,6 +216,46 @@ por par, não por jogador, senão acerto em dois alvos no mesmo golpe viraria um
 
 Dano mora na classe, junto das animações.
 
+#### Knockback
+
+Golpe sem chave `knockback` não empurra — mesma regra do resto do arquivo.
+
+O server decide e manda o **client do alvo** aplicar: aquele client tem network
+ownership do próprio character, então empurrão aplicado no server é desfeito no passo de
+simulação seguinte.
+
+E no client é **força sustentada** (`LinearVelocity`, o mesmo constraint do dash do
+aerial), nunca uma escrita em `AssemblyLinearVelocity`. Um `Humanoid` reescreve a
+própria velocidade horizontal a cada passo, então escrita única evapora antes do frame
+seguinte — era exatamente por isso que o empurrão não acontecia.
+
+### VFX e SFX
+
+`data/shared/Fx.luau` mapeia evento → som e partícula. `FxController` toca, e **nada
+ali é autoritativo**: só reproduz o que o server já decidiu.
+
+Assets vivem no place file: `ReplicatedStorage/SFX/<Nome>` (Sound) e
+`ReplicatedStorage/VFX/<Nome>` (Part → Attachment → ParticleEmitter). O emitter pode
+carregar um atributo `EmitCount`; sem ele vale o default do Config.
+
+Som posicional nasce num `Attachment` no Terrain, não numa Part — um ponto no mundo é
+tudo que ele precisa, e Part traria física pra engine resolver à toa.
+
+VFX clona **só o Attachment**, nunca a Part: a Part do template é alça de Studio e no
+mundo viraria um bloco flutuante. Cada emitter leva `Enabled = false` antes do `Emit` —
+deixar ligado transforma o burst em stream contínuo enquanto a âncora viver. O tempo de
+vida sai do `Lifetime.Max` da partícula mais lenta, não de uma constante chutada.
+
+**Resultado de golpe é broadcast do server** (`hit`, `blocked`, `parry`, `guardBreak`),
+porque só ele sabe se o ataque conectou, foi bloqueado ou aparado — client nenhum
+adivinha isso.
+
+**Som de swing é a exceção**: o dono toca local (latência zero) e o server ecoa só pros
+outros via `Swung`. É o único Fx que um client pode pedir, então o conjunto é fechado
+(`Config.swingFx`) e tem rate limit.
+
+Lista de som sorteia entre variantes, senão golpe repetido vira metrônomo.
+
 ### NPC de combate
 
 Tag `CombatNpc` num rig → ele se arma e ataca quem chegar perto.

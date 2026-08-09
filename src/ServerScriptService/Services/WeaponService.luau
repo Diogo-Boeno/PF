@@ -14,6 +14,7 @@ local STARTER_SLOT = "1"
 local STARTER_WEAPON = 1
 
 local lastRequest: { [Player]: number } = {}
+local lastSwingFx: { [Player]: number } = {}
 
 -- Weak keys so a dead target's entry goes away without a sweep
 local WEAK_KEYS = { __mode = "k" }
@@ -268,6 +269,20 @@ function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, 
 	return "blocked"
 end
 
+-- Same rule as damage: a move with no `knockback` key simply does not shove
+local function knockbackFor(class: any, kind: any): number?
+	if kind == "flourish" then
+		return Config.flourish.knockback
+	end
+	if kind == "heavy" then
+		return if class.heavy then class.heavy.knockback else nil
+	end
+	if kind == "aerial" then
+		return if class.aerial then class.aerial.knockback else nil
+	end
+	return nil
+end
+
 -- The client detects; the server decides. Nothing here trusts the report itself,
 -- only that the attacker could plausibly have made it.
 local function onHitReport(player: Player, target: any, kind: any)
@@ -323,11 +338,12 @@ local function onHitReport(player: Player, target: any, kind: any)
 
 	-- The target's client owns that character's physics, so a server-side shove
 	-- would just be overwritten by its next simulation step
+	local push = knockbackFor(class, kind)
 	local victim = Players:GetPlayerFromCharacter(target.Parent)
-	if kind == "flourish" and victim then
+	if push and victim then
 		local direction = (targetRoot.Position - attackerRoot.Position) * Vector3.new(1, 0, 1)
 		if direction.Magnitude > 0 then
-			Net.FireClient("Knockback", victim, direction.Unit, Config.flourish.knockback)
+			Net.FireClient("Knockback", victim, direction.Unit, push)
 		end
 	end
 end
@@ -337,10 +353,12 @@ function WeaponService.Start()
 	Net.On("WeaponHit", onHitReport)
 	Net.On("SetGrip", onGripRequest)
 	Net.On("SetGuard", onGuardRequest)
+	Net.On("Swung", onSwungReport)
 
 	-- Server->client only, so nothing else would ever create them
 	Net.Register("Knockback")
 	Net.Register("Parried")
+	Net.Register("Fx")
 
 	Players.PlayerAdded:Connect(grantStarter)
 	for _, player in Players:GetPlayers() do
@@ -349,6 +367,7 @@ function WeaponService.Start()
 
 	Players.PlayerRemoving:Connect(function(player)
 		lastRequest[player] = nil
+		lastSwingFx[player] = nil
 		lastHit[player] = nil
 		guardStart[player] = nil
 		parriedAt[player] = nil

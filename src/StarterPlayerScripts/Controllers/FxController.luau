@@ -44,30 +44,36 @@ local function playSound(name: string, position: Vector3)
 	Debris:AddItem(anchor, sound.TimeLength > 0 and sound.TimeLength + 0.5 or 5)
 end
 
+-- Only the Attachment is cloned. The template's Part exists to hold it in Studio and
+-- would otherwise show up in the world as a floating block.
 local function playEffect(name: string, cframe: CFrame)
 	local folder = effects
 	local template = folder and folder:FindFirstChild(name)
-	if not template or not template:IsA("BasePart") then
-		warn(`[FxController] no effect "{name}"`)
+	local source = template and template:FindFirstChildOfClass("Attachment")
+	if not source then
+		warn(`[FxController] no effect "{name}" with an Attachment`)
 		return
 	end
 
-	local part = template:Clone()
-	part.CFrame = cframe
-	part.Anchored = true
-	part.CanCollide = false
-	part.CanQuery = false
-	part.CanTouch = false
-	part.Parent = workspace
+	local anchor = source:Clone()
+	anchor.Name = "FxBurst"
+	anchor.Parent = workspace.Terrain
+	anchor.WorldCFrame = cframe
 
-	for _, emitter in part:GetDescendants() do
+	local longest = 0
+	for _, emitter in anchor:GetDescendants() do
 		if emitter:IsA("ParticleEmitter") then
+			-- Emit is the burst. Leaving Enabled on streams particles the whole time
+			-- the anchor lives, which is what made it look like it was blinking.
+			emitter.Enabled = false
 			local count = emitter:GetAttribute("EmitCount")
 			emitter:Emit(if type(count) == "number" then count else Config.emitCount)
+			longest = math.max(longest, emitter.Lifetime.Max)
 		end
 	end
 
-	Debris:AddItem(part, Config.effectLifetime)
+	-- Live exactly as long as the slowest particle, not a fixed guess
+	Debris:AddItem(anchor, longest + 0.1)
 end
 
 -- `event` keys into both tables, so one name carries sound and particle together

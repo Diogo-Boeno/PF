@@ -6,9 +6,11 @@ local Fx = {
 	soundFolder = "SFX",
 	effectFolder = "VFX",
 
-	-- The template Part is cloned, so it must stay Anchored and non-colliding
-	effectLifetime = 2,
-	-- Emitters may override with an `EmitCount` attribute
+	-- Only the Attachment under the template Part is cloned, so the Part itself is
+	-- just a Studio handle and never reaches the world. Lifetime comes from the
+	-- slowest particle, not from a constant.
+	--
+	-- Emitters may override the burst size with an `EmitCount` attribute
 	emitCount = 24,
 
 	-- A list rolls one at random, which is what keeps repeated swings from
@@ -22,10 +24,10 @@ local Fx = {
 		hit = { "Hit1", "Hit2" },
 		heavyHit = { "BigHit" },
 
-		blocked = { "DampenedHit" },
-		parry = { "Clash1", "Clash2", "Clash3" },
+		blocked = { "Clash1" },
+		parry = { "Parry" },
 		parried = { "Parried" },
-		guardBreak = { "BlastHit" },
+		guardBreak = { "Guardbreak" },
 	},
 
 	effect = {

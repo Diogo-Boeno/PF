@@ -64,6 +64,7 @@ local Weapons = {
 			heavy = {
 				animation = "rbxassetid://97463310555309",
 				damage = 26,
+				knockback = 55,
 				-- A thrust is a line with thickness. `range` is the reach, so it stops
 				-- being hostage to how long the blade mesh happens to be
 				hitbox = {
@@ -125,8 +126,25 @@ local Weapons = {
 	-- Blocks R alone, counted from when the heavy ends. Other attacks stay free
 	heavyCooldown = 1.5,
 
+	-- How long the shove is held. A Humanoid overrides its own velocity every step,
+	-- so a shove has to be a sustained force or it never happens at all.
+	knockbackTime = 0.18,
+
+	-- Upward component. Without it the shove fights ground friction and the Humanoid
+	-- controller at once, and a grounded target barely moves.
+	knockbackLift = 22,
+
 	-- Every accepted equip replicates to every client
 	requestCooldown = 0.25,
+
+	-- The only Fx a client may ask for, so the set is closed and rate limited
+	swingFx = {
+		swing = true,
+		flourish = true,
+		heavy = true,
+		aerial = true,
+	},
+	swingFxCooldown = 0.15,
 
 	-- Sanity bound on a reported hit, not gameplay reach. Wide enough to absorb lag
 	maxHitDistance = 18,
@@ -147,7 +165,7 @@ local Weapons = {
 		parryWhiff = 1.5,
 		postureMax = 100,
 		-- Per second, always draining
-		postureDecay = 14,
+		postureDecay = 1,
 		-- Posture a blocked hit adds, as a share of the damage it would have dealt
 		postureFactor = 1.4,
 		-- Posture the attacker eats for being parried
@@ -165,6 +183,7 @@ export type Weapons = typeof(Weapons)
 
 table.freeze(Weapons.rig)
 table.freeze(Weapons.debugHitbox)
+table.freeze(Weapons.swingFx)
 table.freeze(Weapons.otherGrip)
 table.freeze(Weapons.flourish)
 table.freeze(Weapons.guard)

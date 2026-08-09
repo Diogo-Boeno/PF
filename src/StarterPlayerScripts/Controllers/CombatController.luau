@@ -10,6 +10,7 @@ local Config = require(ReplicatedStorage.Data.Weapons)
 local Net = require(ReplicatedStorage.Shared.Framework.Net)
 local RaycastHitbox = require(ReplicatedStorage.RaycastHitbox)
 local WeaponController = require(script.Parent.WeaponController)
+local FxController = require(script.Parent.FxController)
 
 local FADE = 0.1
 local HEAVY_KEY = Enum.KeyCode.R
@@ -350,23 +351,33 @@ local function stopDash()
 	dashToken += 1
 end
 
-local function startDash(aerial: any)
+-- A Humanoid rewrites its own horizontal velocity every step, so a one-shot write to
+-- AssemblyLinearVelocity is gone by the next frame. Held force is the only thing that
+-- moves a character against its own controller.
+local function applyImpulse(direction: Vector3, speed: number, vertical: number?, duration: number)
 	local force, root = dashForce, rootPart()
 	if not force or not root then
 		return
 	end
 
-	local look = root.CFrame.LookVector
-	force.VectorVelocity = Vector3.new(look.X * aerial.dashSpeed, aerial.dashFall, look.Z * aerial.dashSpeed)
+	local y = if vertical then vertical else root.AssemblyLinearVelocity.Y
+	force.VectorVelocity = Vector3.new(direction.X * speed, y, direction.Z * speed)
 	force.Enabled = true
 
 	dashToken += 1
 	local token = dashToken
-	task.delay(aerial.dashTime, function()
+	task.delay(duration, function()
 		if dashToken == token then
 			stopDash()
 		end
 	end)
+end
+
+local function startDash(aerial: any)
+	local root = rootPart()
+	if root then
+		applyImpulse(root.CFrame.LookVector, aerial.dashSpeed, aerial.dashFall, aerial.dashTime)
+	end
 end
 
 -- Class sets the shape, the weapon scales it. Resolved once per attack, so the
@@ -412,9 +423,24 @@ local function hitboxSpecFor(kind: Kind): any?
 	return nil
 end
 
+-- Played locally first so the swinger never hears its own attack late; the server
+-- echoes it to everyone else
+local function announceSwing(kind: Kind)
+	if kind == "parried" then
+		return
+	end
+
+	local root = rootPart()
+	if root then
+		FxController.play(kind, root.Position)
+	end
+	Net.FireServer("Swung", kind)
+end
+
 local function startHitbox(kind: Kind)
 	openedHitbox = true
 	table.clear(shapeHits)
+	announceSwing(kind)
 
 	local spec = hitboxSpecFor(kind)
 	if not spec then
@@ -794,14 +820,8 @@ local function onParried(side: any)
 	lockedUntil = os.clock() + Config.guard.parriedLock
 end
 
-local function applyKnockback(direction: Vector3, force: number)
-	local root = rootPart()
-	if not root then
-		return
-	end
-
-	local vertical = root.AssemblyLinearVelocity.Y
-	root.AssemblyLinearVelocity = Vector3.new(direction.X * force, vertical, direction.Z * force)
+local function applyKnockback(direction: Vector3, speed: number)
+	applyImpulse(direction, speed, nil, Config.knockbackTime)
 end
 
 local function teardownCharacter()
