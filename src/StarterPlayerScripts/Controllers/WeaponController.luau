@@ -127,7 +127,8 @@ end
 local function loadTemplates()
 	local folder = ReplicatedStorage:WaitForChild(Config.folder)
 
-	for id, name in Config.byId do
+	for id, entry in Config.byId do
+		local name = entry.model
 		local model = folder:FindFirstChild(name)
 		if not model or not model:IsA("Model") then
 			warn(`[WeaponController] missing weapon model "{name}"`)
@@ -165,6 +166,10 @@ end
 
 function WeaponController.request(id: number)
 	Net.FireServer("EquipWeapon", id)
+end
+
+function WeaponController.mountedFor(target: Player): Model?
+	return mounted[target]
 end
 
 function WeaponController.Start()

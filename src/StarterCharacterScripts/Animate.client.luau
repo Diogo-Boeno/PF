@@ -42,7 +42,7 @@ local animNames = {
 				{ id = "rbxassetid://82047487788878", weight = 1 }
 			},
 	walk = 	{
-				{ id = "rbxassetid://135081540105863", weight = 10 }
+				{ id = "rbxassetid://110689452546712", weight = 10 }
 			},
 	run = 	{
 				{ id = "rbxassetid://127703320265931", weight = 10 }
@@ -94,7 +94,7 @@ local animNames = {
 				{ id = "rbxassetid://112196430986414", weight = 10 }
 			},
 	cheer = {
-				{ id = "http://www.roblox.com/asset/?id=129423030", weight = 10 }
+				{ id = "rbxassetid://135286967732075", weight = 10 }
 			},
 }
 local dances = {"dance1", "dance2", "dance3"}

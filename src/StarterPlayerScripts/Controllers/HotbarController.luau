@@ -49,7 +49,8 @@ local function contentOf(slot: string): string
 	if type(id) ~= "number" then
 		return ""
 	end
-	return Config.byId[id] or ""
+	local entry = Config.byId[id]
+	return if entry then entry.model else ""
 end
 
 local function paint(slot: string)

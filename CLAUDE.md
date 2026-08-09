@@ -24,6 +24,14 @@ estar instalado não é decisão tomada.
 `profilestore` presente **não significa que há persistência**. Não há. Introduzir é
 decisão de arquitetura.
 
+**RaycastHitboxV4** não vem do Wally: o `lib/` de
+[Swordphin/raycastHitboxRbxl](https://github.com/Swordphin/raycastHitboxRbxl) está
+vendorizado em `src/ReplicatedStorage/RaycastHitbox/` (MIT, LICENSE junto). É código de
+terceiro — **não rode StyLua nem selene nele**. Procura Attachments chamados `DmgPoint`
+por default, que é como as armas já estão montadas. O autor descontinuou o V4.01 em 2021
+em favor do ShapecastHitbox e admite bugs e custo de performance; a escolha pelo V4 é do
+Cosmo e está tomada.
+
 ## Comandos
 
 Não existe test runner. "Testar" = selene limpo + StyLua + `rojo build` compila.
@@ -50,8 +58,11 @@ Stories de UI Labs só rodam dentro do Studio. Não há CLI pra elas.
 - **Loader** — `LoadDescendants(folder)` + `Start()`. Roda todo `Init()` em sequência,
   depois cada `Start()` em `task.spawn`. Ambos opcionais, ambos em pcall: módulo que
   falha emite `warn` e não derruba o boot.
-- **Net** — `FireClient`, `FireAllClients`, `FireServer`, `On`. RemoteEvent criado sob
-  demanda no server, `WaitForChild` no client.
+- **Net** — `FireClient`, `FireAllClients`, `FireServer`, `On`, `Register`. RemoteEvent
+  criado sob demanda no server, `WaitForChild` no client. Remote **server→client** exige
+  `Net.Register(name)` no boot do server: sem isso o client trava em `WaitForChild` até
+  o primeiro `FireClient`, que pode nunca vir. `Net.On` no client **yielda** — conecte
+  input antes dele no `Start`.
 - **Signal** — `new`, `Connect`, `Once`, `Fire`, `Wait`, `Destroy`. `Fire` faz
   `task.spawn` por conexão, então handler lento não segura o emissor.
 - **State** — key-value global com signal por chave: `Set`, `Get`, `Update`, `OnChange`,
@@ -120,6 +131,120 @@ swing.
 Templates ficam em `ReplicatedStorage/Weapons/` **no place file** — mesh não vai pro git,
 e `$ignoreUnknownInstances` impede o Rojo de apagar.
 
+### Animação de arma
+
+Animação Roblox guarda Pose por nome de parte, e toda arma roda num `Handle` — então um
+swing autorado uma vez serve todas as armas da classe. **Classe é grip + tamanho**
+(`OneHandMedium`), não arma: as dez espadas médias de uma mão compartilham o mesmo set.
+Arma que precisa de um golpe próprio põe `animations` na entrada e sobrescreve **por
+chave**, herdando o resto da classe.
+
+`CombatController` toca só para o dono — `Animator` replica pro resto de graça. Idle e
+walk saem em `Action` e o swing em `Action2`, os dois acima do `Core` que o
+`Animate.client` toca; é assim que o walk não come o golpe no meio.
+
+Locomoção lê `Humanoid.MoveDirection`, não `Running`: é input, então não tem drift
+residual pra comparar contra threshold.
+
+O combo é M1 e **swing nunca é cortado**. Clique com um swing tocando não toca nada na
+hora: se caiu na cauda (`comboBuffer`) fica agendado e dispara quando o atual termina,
+se veio cedo demais é descartado. Isso é o que faz o encadeamento pedir timing em vez de
+premiar spam. `comboReset` conta a partir do **fim** do último swing, não do início —
+medir do início faria o próprio encadeamento parecer ociosidade e resetar o combo.
+
+A corrente é `swings` da classe **mais o Flourish**, que é universal e mora fora de
+`classes` — todo M1 encadeia nele por último. O endlag vem depois do Flourish, não do
+último swing da classe. Fechar a corrente custa alguma coisa, senão M1 em loop é a
+resposta ótima pra tudo.
+
+`R` toca Heavy e M1 no ar toca Aerial, os dois fora da corrente. Aerial trava por
+`aerialCooldown`, mais largo que o endlag.
+
+O dash do Aerial é um `LinearVelocity` **sustentado** por `dashTime`, não um impulso
+único: setar `AssemblyLinearVelocity` uma vez deixa a gravidade curvar o movimento numa
+parábola, que lê como pulo em vez de planagem. O `dashFall` quase zero é o que segura a
+queda. O constraint é montado uma vez por personagem e só liga/desliga. Encostar no chão
+cancela o dash, senão um aerial baixo vira patinação.
+
+**Uma classe declara só o que ela sabe fazer.** `heavy`, `aerial`, `block`, `parry`
+ausentes significam que aquela arma não tem a mecânica — a chave faltando *é* a regra de
+disponibilidade, não existe tabela de "quem pode o quê" nem `if weight == "Medium"`.
+
+### Guarda, parry e postura
+
+`F` segura a guarda. Não existe timer decidindo "agora virou block": o block toca em
+loop desde o primeiro frame e o ParryStart roda por cima em `Action3`, expirando
+sozinho. A janela real de parry é do **server**.
+
+**O defensor nunca precisa ser avisado de que um ataque vem.** O server já conhece o
+estado de guarda do alvo quando o report do atacante chega, então ele resolve parry vs
+block ali. Isso é o que dispensa uma via de comunicação entre atacante e defensor.
+
+Resolução de um hit contra quem está guardando:
+
+| condição | resultado |
+|---|---|
+| dentro de `parryWindow` e fora do whiff | dano negado, postura pro atacante, `Parried` |
+| guardando fora da janela | dano negado exceto `chip`, postura pro defensor |
+| postura cheia | guard break: `Stunned`, postura zera |
+
+Apertar `F` sem nada pra aparar cobra `parryWhiff` — **só o parry**, o block segue
+liberado. É isso que faz mashar F custar alguma coisa.
+
+Chip é dano de vida que atravessa o block e **não** reduz o dano de postura. Classe sem
+chave `chip` bloqueia de graça.
+
+Postura decai em `Heartbeat` no server e vive num atributo replicado, então UI futura só
+lê. Decai sempre, não só fora de combate.
+
+`parried` na classe pode ter `left` e `right`; com as duas o server sorteia, com uma só
+ele usa aquela — é assim que Light e Heavy usam sempre a direita sem nenhum `if`.
+
+### Grip
+
+`Y` alterna o atributo `Grip` entre `OneHand` e `TwoHand`. Cada arma mapeia **uma classe
+por grip** (`classes = { OneHand = "OneHandMedium" }`), e o grip sem classe simplesmente
+não é alcançável — é isso que mantém TwoHand desligado até as animações existirem, sem
+flag nem `if`.
+
+Hoje o grip só troca a classe de animação. Segunda mão no rig (a `LeftPalm` também tem
+`GripAttachment`) não está implementada.
+
+Para autorar: o Motor6D da arma só existe em runtime, então monte a arma no rig à mão
+antes de abrir o editor (`Part0 = RightPalm`, `Part1 = Handle`, `C0`/`C1` dos dois
+`GripAttachment`). O que a animação grava é o nome de Part1.
+
+Toda animação de ataque carrega dois **Animation Events**, `Start` e `End`, e são eles
+que abrem e fecham a hitbox. A janela ativa é dado da animação, não número no código —
+golpe que erra o timing se corrige no editor, nunca no controller.
+
+### Dano
+
+**O client detecta, o server decide.** Não é preferência: o server não tem a arma
+montada nem a animação tocando, então não sabe onde a lâmina está. Fazer raycast lá
+exigiria montar arma e animação no server e jogaria fora a decisão de nunca botar a arma
+na rede.
+
+`CombatController` abre a hitbox no `Start`, fecha no `End`, e reporta via
+`Net "WeaponHit"`. Fecha também no `Stopped` do track — golpe cortado nunca chega no
+`End` e deixaria a hitbox ligada. `HitStop` limpa a hit list da lib, o que já dá um hit
+por alvo por golpe sem código.
+
+O Flourish é a exceção: chute não tem arco pra interpolar, então é **uma**
+`GetPartBoundsInBox` no frame do impacto em vez de raycast por frame.
+
+`WeaponService` não confia no report, só verifica que o atacante **poderia** tê-lo feito:
+arma equipada de verdade, os dois vivos, alvo ≠ atacante, distância dentro de
+`maxHitDistance`, cooldown por par atacante/alvo, e o **tipo** de ataque declarado pela
+classe. Só então `TakeDamage`. O cooldown é por par, não por jogador, senão acerto em
+dois alvos no mesmo golpe viraria um só.
+
+Dano mora com quem é dono do golpe: Flourish no `flourish` global, o resto na classe.
+
+Knockback é decidido no server e aplicado **no client do alvo** — aquele client tem
+network ownership do próprio character, então empurrão aplicado no server seria desfeito
+no passo de simulação seguinte.
+
 ### Hotbar
 
 `HotbarUI.Holder` no StarterGui, montada à mão: 10 `ImageButton` de nome `1`..`9`, `0` —
@@ -152,6 +277,7 @@ data/
 src/
 ├── ReplicatedFirst/Loading.client.luau
 ├── ReplicatedStorage/
+│   ├── RaycastHitbox/     <-- vendorizado, terceiro, não lintar
 │   ├── Shared/
 │   │   ├── Framework/     <-- Loader, Net, Signal, State, Tags
 │   │   └── UI/Common/     <-- kit reutilizável, barrel em init.luau
@@ -163,7 +289,7 @@ src/
 ├── StarterCharacterScripts/Animate.client.luau
 └── StarterPlayerScripts/
     ├── Bootstrap.client.luau
-    └── Controllers/       <-- Movement, SmartBone, Weapon; *Controller.luau
+    └── Controllers/       <-- Movement, SmartBone, Weapon, Hotbar, Combat
 ```
 
 Padrão canônico pra copiar: `UI/Common/Button.luau` (componente Vide) ou
