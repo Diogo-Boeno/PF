@@ -1,5 +1,6 @@
 --!strict
 
+local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -269,6 +270,25 @@ function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, 
 	return "blocked"
 end
 
+-- Non-player targets are owned by the server, so the shove is applied right here.
+-- Same sustained force as the client path: a one-shot velocity write loses to the
+-- Humanoid controller on the very next step.
+local function shoveHere(root: BasePart, direction: Vector3, speed: number)
+	local anchor = Instance.new("Attachment")
+	anchor.Name = "Knockback"
+	anchor.Parent = root
+
+	local force = Instance.new("LinearVelocity")
+	force.Attachment0 = anchor
+	force.RelativeTo = Enum.ActuatorRelativeTo.World
+	force.MaxForce = math.huge
+	force.VectorVelocity = Vector3.new(direction.X * speed, Config.knockbackLift, direction.Z * speed)
+	force.Parent = anchor
+
+	-- Destroying the attachment takes the constraint with it
+	Debris:AddItem(anchor, Config.knockbackTime)
+end
+
 -- Same rule as damage: a move with no `knockback` key simply does not shove
 local function knockbackFor(class: any, kind: any): number?
 	if kind == "flourish" then
@@ -339,12 +359,24 @@ local function onHitReport(player: Player, target: any, kind: any)
 	-- The target's client owns that character's physics, so a server-side shove
 	-- would just be overwritten by its next simulation step
 	local push = knockbackFor(class, kind)
+	if not push then
+		return
+	end
+
+	local direction = (targetRoot.Position - attackerRoot.Position) * Vector3.new(1, 0, 1)
+	if direction.Magnitude == 0 then
+		return
+	end
+
 	local victim = Players:GetPlayerFromCharacter(target.Parent)
-	if push and victim then
-		local direction = (targetRoot.Position - attackerRoot.Position) * Vector3.new(1, 0, 1)
-		if direction.Magnitude > 0 then
-			Net.FireClient("Knockback", victim, direction.Unit, push)
-		end
+	if victim then
+		Net.FireClient("Knockback", victim, direction.Unit, push)
+	else
+		shoveHere(targetRoot, direction.Unit, push)
+	end
+
+	if Config.debugHitbox.enabled then
+		print(`[Knockback] {kind} -> {target.Parent and target.Parent.Name}, force {push}, player {victim ~= nil}`)
 	end
 end
 

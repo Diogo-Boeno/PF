@@ -149,6 +149,12 @@ se veio cedo demais é descartado. Isso é o que faz o encadeamento pedir timing
 premiar spam. `comboReset` conta a partir do **fim** do último swing, não do início —
 medir do início faria o próprio encadeamento parecer ociosidade e resetar o combo.
 
+**Cada ataque tem o próprio cooldown e nenhum encosta no outro** — heavy não esfria o
+M1, endlag não esfria o aerial, aerial não esfria o heavy. `chainReadyAt`,
+`heavyReadyAt` e `aerialReadyAt` existem separados porque uma variável só compartilhada
+era exatamente o que fazia um vazar no outro. A única trava global é `staggerUntil`, de
+ter levado parry — essa **deve** parar tudo.
+
 O último golpe da corrente não volta pro 1: fecha em **endlag**, uma janela sem input.
 Fechar o combo custa alguma coisa, senão M1 em loop é a resposta ótima pra tudo.
 

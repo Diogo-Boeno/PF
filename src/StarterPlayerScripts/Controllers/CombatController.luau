@@ -77,8 +77,15 @@ local dashToken = 0
 
 -- When the last attack ended, not started: chaining must not read as idle time
 local lastAttackEnd = 0
-local lockedUntil = 0
+
+-- One gate per attack, never shared. Sharing is what made a heavy cool down the M1
+-- and the endlag cool down the aerial.
+local chainReadyAt = 0
 local heavyReadyAt = 0
+local aerialReadyAt = 0
+
+-- The one lock that is meant to stop everything: being parried is a stagger
+local staggerUntil = 0
 
 local connections: { RBXScriptConnection } = {}
 
@@ -468,8 +475,10 @@ local function clearTracks()
 	queued = false
 	current = nil
 	activeKind = nil
-	lockedUntil = 0
+	chainReadyAt = 0
 	heavyReadyAt = 0
+	aerialReadyAt = 0
+	staggerUntil = 0
 	stopDash()
 	setAttackLock(false)
 	releaseHitbox()
@@ -586,9 +595,9 @@ local function onAttackEnded(track: AnimationTrack)
 	end
 
 	if kind == "flourish" then
-		lockedUntil = lastAttackEnd + Config.endlag
+		chainReadyAt = lastAttackEnd + Config.endlag
 	elseif kind == "aerial" then
-		lockedUntil = lastAttackEnd + Config.aerialCooldown
+		aerialReadyAt = lastAttackEnd + Config.aerialCooldown
 	elseif kind == "heavy" then
 		heavyReadyAt = lastAttackEnd + Config.heavyCooldown
 	elseif kind == "parried" then
@@ -719,15 +728,21 @@ local function playAerial()
 end
 
 local function swing()
-	if guarding or stunned() or os.clock() < lockedUntil then
+	local now = os.clock()
+	if guarding or stunned() or now < staggerUntil then
 		return
 	end
 
 	if airborne() then
-		-- The aerial replaces M1 outright and takes no buffering
-		if not current and aerialTrack then
+		-- The aerial replaces M1 outright and takes no buffering. It answers only to
+		-- its own cooldown, so the ground chain's endlag never grounds it.
+		if not current and aerialTrack and now >= aerialReadyAt then
 			playAerial()
 		end
+		return
+	end
+
+	if now < chainReadyAt then
 		return
 	end
 
@@ -746,7 +761,7 @@ end
 local function heavy()
 	local track = heavyTrack
 	local now = os.clock()
-	if not track or current or guarding or stunned() or now < lockedUntil or now < heavyReadyAt then
+	if not track or current or guarding or stunned() or now < staggerUntil or now < heavyReadyAt then
 		return
 	end
 
@@ -764,7 +779,8 @@ end
 
 local function startGuard()
 	local block = blockTrack
-	if guarding or current or not block or stunned() or os.clock() < lockedUntil then
+	-- Attack cooldowns do not gate the guard; only a stagger does
+	if guarding or current or not block or stunned() or os.clock() < staggerUntil then
 		return
 	end
 
@@ -817,11 +833,19 @@ local function onParried(side: any)
 	if track then
 		play(track)
 	end
-	lockedUntil = os.clock() + Config.guard.parriedLock
+
+	-- The one lock that is supposed to stop everything at once
+	staggerUntil = os.clock() + Config.guard.parriedLock
 end
 
 local function applyKnockback(direction: Vector3, speed: number)
-	applyImpulse(direction, speed, nil, Config.knockbackTime)
+	-- Lift on purpose: flat against the ground, friction and the Humanoid controller
+	-- both eat the shove and a grounded target barely budges
+	applyImpulse(direction, speed, Config.knockbackLift, Config.knockbackTime)
+
+	if debugging() then
+		print(`[Knockback] applied {speed}`)
+	end
 end
 
 local function teardownCharacter()

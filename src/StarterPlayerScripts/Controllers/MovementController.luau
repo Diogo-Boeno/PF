@@ -6,7 +6,10 @@ local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage.Data.Movement)
 
-local SPRINT_KEY = Enum.KeyCode.LeftShift
+local SPRINT_KEY = Enum.KeyCode.W
+
+-- Two taps inside this window start the run; the second tap is then held to keep it
+local DOUBLE_TAP_WINDOW = 0.3
 
 local GROUNDED_STATES: { [Enum.HumanoidStateType]: boolean } = {
 	[Enum.HumanoidStateType.Running] = true,
@@ -23,6 +26,7 @@ LAND_ASSET.AnimationId = Config.animation.land
 local player = Players.LocalPlayer
 
 local sprintHeld = false
+local lastTap = 0
 
 local humanoid: Humanoid? = nil
 local sprintTrack: AnimationTrack? = nil
@@ -139,18 +143,28 @@ function MovementController.Start()
 		if gameProcessed or input.KeyCode ~= SPRINT_KEY then
 			return
 		end
-		sprintHeld = true
-		applyWalkSpeed()
-		evaluateSprint()
+
+		local now = os.clock()
+		-- Only the second tap of a pair starts the run; a single press just walks
+		if now - lastTap <= DOUBLE_TAP_WINDOW then
+			sprintHeld = true
+			applyWalkSpeed()
+			evaluateSprint()
+		end
+		lastTap = now
 	end)
 
 	UserInputService.InputEnded:Connect(function(input: InputObject)
 		if input.KeyCode ~= SPRINT_KEY then
 			return
 		end
-		sprintHeld = false
-		applyWalkSpeed()
-		evaluateSprint()
+
+		-- Releasing forward ends the run, so it never outlives the input holding it
+		if sprintHeld then
+			sprintHeld = false
+			applyWalkSpeed()
+			evaluateSprint()
+		end
 	end)
 
 	player.CharacterAdded:Connect(setupCharacter)
