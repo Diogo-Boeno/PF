@@ -11,6 +11,7 @@ local TextInput = require(script.TextInput)
 local ModelViewport = require(script.ModelViewport)
 local AutoScale = require(script.AutoScale)
 local HitCircle = require(script.HitCircle)
+local StatBar = require(script.StatBar)
 
 export type Theme = Theme.Theme
 export type ButtonProps = Button.ButtonProps
@@ -20,6 +21,7 @@ export type CheckboxProps = Checkbox.CheckboxProps
 export type TextInputProps = TextInput.TextInputProps
 export type ModelViewportProps = ModelViewport.ModelViewportProps
 export type HitCircleProps = HitCircle.HitCircleProps
+export type StatBarProps = StatBar.StatBarProps
 export type HitResult = HitCircle.HitResult
 export type Judgement = HitCircle.Judgement
 
@@ -33,6 +35,7 @@ return table.freeze({
 	ModelViewport = ModelViewport,
 	AutoScale = AutoScale,
 	HitCircle = HitCircle,
+	StatBar = StatBar,
 
 	-- next pass: Slider, Dropdown, ProgressBar, Tooltip
 })

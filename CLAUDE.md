@@ -58,11 +58,8 @@ Stories de UI Labs só rodam dentro do Studio. Não há CLI pra elas.
 - **Loader** — `LoadDescendants(folder)` + `Start()`. Roda todo `Init()` em sequência,
   depois cada `Start()` em `task.spawn`. Ambos opcionais, ambos em pcall: módulo que
   falha emite `warn` e não derruba o boot.
-- **Net** — `FireClient`, `FireAllClients`, `FireServer`, `On`, `Register`. RemoteEvent
-  criado sob demanda no server, `WaitForChild` no client. Remote **server→client** exige
-  `Net.Register(name)` no boot do server: sem isso o client trava em `WaitForChild` até
-  o primeiro `FireClient`, que pode nunca vir. `Net.On` no client **yielda** — conecte
-  input antes dele no `Start`.
+- **Net** — `FireClient`, `FireAllClients`, `FireServer`, `On`. RemoteEvent criado sob
+  demanda no server, `WaitForChild` no client.
 - **Signal** — `new`, `Connect`, `Once`, `Fire`, `Wait`, `Destroy`. `Fire` faz
   `task.spawn` por conexão, então handler lento não segura o emissor.
 - **State** — key-value global com signal por chave: `Set`, `Get`, `Update`, `OnChange`,
@@ -152,63 +149,8 @@ se veio cedo demais é descartado. Isso é o que faz o encadeamento pedir timing
 premiar spam. `comboReset` conta a partir do **fim** do último swing, não do início —
 medir do início faria o próprio encadeamento parecer ociosidade e resetar o combo.
 
-A corrente é `swings` da classe **mais o Flourish**, que é universal e mora fora de
-`classes` — todo M1 encadeia nele por último. O endlag vem depois do Flourish, não do
-último swing da classe. Fechar a corrente custa alguma coisa, senão M1 em loop é a
-resposta ótima pra tudo.
-
-`R` toca Heavy e M1 no ar toca Aerial, os dois fora da corrente. Aerial trava por
-`aerialCooldown`, mais largo que o endlag.
-
-O dash do Aerial é um `LinearVelocity` **sustentado** por `dashTime`, não um impulso
-único: setar `AssemblyLinearVelocity` uma vez deixa a gravidade curvar o movimento numa
-parábola, que lê como pulo em vez de planagem. O `dashFall` quase zero é o que segura a
-queda. O constraint é montado uma vez por personagem e só liga/desliga. Encostar no chão
-cancela o dash, senão um aerial baixo vira patinação.
-
-**Uma classe declara só o que ela sabe fazer.** `heavy`, `aerial`, `block`, `parry`
-ausentes significam que aquela arma não tem a mecânica — a chave faltando *é* a regra de
-disponibilidade, não existe tabela de "quem pode o quê" nem `if weight == "Medium"`.
-
-### Guarda, parry e postura
-
-`F` segura a guarda. Não existe timer decidindo "agora virou block": o block toca em
-loop desde o primeiro frame e o ParryStart roda por cima em `Action3`, expirando
-sozinho. A janela real de parry é do **server**.
-
-**O defensor nunca precisa ser avisado de que um ataque vem.** O server já conhece o
-estado de guarda do alvo quando o report do atacante chega, então ele resolve parry vs
-block ali. Isso é o que dispensa uma via de comunicação entre atacante e defensor.
-
-Resolução de um hit contra quem está guardando:
-
-| condição | resultado |
-|---|---|
-| dentro de `parryWindow` e fora do whiff | dano negado, postura pro atacante, `Parried` |
-| guardando fora da janela | dano negado exceto `chip`, postura pro defensor |
-| postura cheia | guard break: `Stunned`, postura zera |
-
-Apertar `F` sem nada pra aparar cobra `parryWhiff` — **só o parry**, o block segue
-liberado. É isso que faz mashar F custar alguma coisa.
-
-Chip é dano de vida que atravessa o block e **não** reduz o dano de postura. Classe sem
-chave `chip` bloqueia de graça.
-
-Postura decai em `Heartbeat` no server e vive num atributo replicado, então UI futura só
-lê. Decai sempre, não só fora de combate.
-
-`parried` na classe pode ter `left` e `right`; com as duas o server sorteia, com uma só
-ele usa aquela — é assim que Light e Heavy usam sempre a direita sem nenhum `if`.
-
-### Grip
-
-`Y` alterna o atributo `Grip` entre `OneHand` e `TwoHand`. Cada arma mapeia **uma classe
-por grip** (`classes = { OneHand = "OneHandMedium" }`), e o grip sem classe simplesmente
-não é alcançável — é isso que mantém TwoHand desligado até as animações existirem, sem
-flag nem `if`.
-
-Hoje o grip só troca a classe de animação. Segunda mão no rig (a `LeftPalm` também tem
-`GripAttachment`) não está implementada.
+O último golpe da corrente não volta pro 1: fecha em **endlag**, uma janela sem input.
+Fechar o combo custa alguma coisa, senão M1 em loop é a resposta ótima pra tudo.
 
 Para autorar: o Motor6D da arma só existe em runtime, então monte a arma no rig à mão
 antes de abrir o editor (`Part0 = RightPalm`, `Part1 = Handle`, `C0`/`C1` dos dois
@@ -227,23 +169,69 @@ na rede.
 
 `CombatController` abre a hitbox no `Start`, fecha no `End`, e reporta via
 `Net "WeaponHit"`. Fecha também no `Stopped` do track — golpe cortado nunca chega no
-`End` e deixaria a hitbox ligada. `HitStop` limpa a hit list da lib, o que já dá um hit
-por alvo por golpe sem código.
+`End` e deixaria a hitbox ligada.
 
-O Flourish é a exceção: chute não tem arco pra interpolar, então é **uma**
-`GetPartBoundsInBox` no frame do impacto em vez de raycast por frame.
+#### Forma da hitbox
+
+**A forma segue o que o golpe é**, e vem dos dados. `hitbox` ausente = lâmina.
+
+| shape | usa | quem | por quê |
+|---|---|---|---|
+| *(ausente)* | `RaycastHitbox` nos `DmgPoint` | swings | lâmina fina varrendo arco largo |
+| `point` | uma `GetPartBoundsInBox` | flourish | chute é contato num instante |
+| `cast` | `Blockcast` | heavy | estocada é linha com espessura |
+| `sweep` | `GetPartBoundsInBox` por frame | aerial | mergulho atropela quem está no caminho |
+
+Raycast falharia no heavy porque a lâmina avança **na direção do próprio comprimento**:
+os segmentos entre frames se sobrepõem ao que ela já ocupa, e o alcance fica preso ao
+tamanho da mesh. Com `cast`, `range` é um número. `Blockcast` para no primeiro alvo, o
+que é o certo pra estocada — perfura um, e parede continua bloqueando.
+
+**`cast` faz overlap antes do Blockcast, e isso não é redundância.** Shapecast que
+começa já sobreposto com o alvo retorna `nil` — então sem o teste de overlap o heavy
+erra justamente quando o inimigo está colado, que é quando ele deveria acertar mais.
+
+**Classe define a forma, arma escala.** `reach` na entrada de `byId` multiplica `size`,
+`offset` e `range` de heavy e aerial, resolvido uma vez por golpe. É o que deixa katana e
+espada curta compartilharem `OneHandMedium` com alcances diferentes. Não toca no
+flourish: chute não fica mais longo por causa da arma.
+
+`HitStop` limpava a hit list da lib e dava um hit por alvo por golpe de graça. As formas
+próprias mantêm `shapeHits`, zerada quando a janela abre.
+
+#### Debug
+
+`Config.debugHitbox` liga tudo: raios da lib e caixas. O atributo `DebugHitbox` no
+Workspace sobrepõe em runtime, sem rebuild. `sweep` mantém **um** adornment seguindo o
+jogador, não um por frame.
+
+Ataque que termina sem a hitbox ter aberto emite warn nomeando o `Start` — quase sempre
+é o Animation Event que não foi autorado naquela animação, e sem esse aviso não se
+distingue de hitbox que abriu e errou.
 
 `WeaponService` não confia no report, só verifica que o atacante **poderia** tê-lo feito:
 arma equipada de verdade, os dois vivos, alvo ≠ atacante, distância dentro de
-`maxHitDistance`, cooldown por par atacante/alvo, e o **tipo** de ataque declarado pela
-classe. Só então `TakeDamage`. O cooldown é por par, não por jogador, senão acerto em
-dois alvos no mesmo golpe viraria um só.
+`maxHitDistance` e cooldown por par atacante/alvo. Só então `TakeDamage`. O cooldown é
+por par, não por jogador, senão acerto em dois alvos no mesmo golpe viraria um só.
 
-Dano mora com quem é dono do golpe: Flourish no `flourish` global, o resto na classe.
+Dano mora na classe, junto das animações.
 
-Knockback é decidido no server e aplicado **no client do alvo** — aquele client tem
-network ownership do próprio character, então empurrão aplicado no server seria desfeito
-no passo de simulação seguinte.
+### NPC de combate
+
+Tag `CombatNpc` num rig → ele se arma e ataca quem chegar perto.
+`Services/NpcCombatService.luau`.
+
+**A arma do NPC é montada no server**, ao contrário da do player. É a exceção
+consciente à regra "a arma nunca cruza a rede": generalizar o caminho de mount do
+client sobre holders que não são `Player` custaria refactor em três arquivos, e um
+punhado de dummies não paga isso. Muitos NPCs mudam essa conta.
+
+O NPC não precisa de raycast na lâmina: o server é dono do rig, então sabe pra onde ele
+olha. Uma `GetPartBoundsInBox` à frente no marker `Start` basta.
+
+`WeaponService.resolveHit` existe **porque** o NPC precisa passar exatamente pelas
+mesmas regras de parry e block que um golpe de player. `attacker` nil significa que
+ninguém é dono do golpe — por isso NPC não ganha nem sofre postura.
 
 ### Hotbar
 

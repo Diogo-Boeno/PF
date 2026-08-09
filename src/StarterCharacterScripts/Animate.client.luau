@@ -5,6 +5,10 @@ local Torso = Figure:WaitForChild("Torso")
 local Humanoid = Figure:WaitForChild("Humanoid")
 local pose = "Standing"
 
+-- Set by CombatController. Priority alone cannot fix this: a locomotion track still
+-- fills every joint an attack does not animate, so the attack must play alone.
+local ATTACK_LOCK = "AttackLock"
+
 -- Custom rig: no arms at all, and the limbs drop the stock R6 spacing (RightLeg,
 -- not "Right Leg"), so the joint names differ too. Resolve a motor by the part it
 -- drives instead of by name, and tolerate absence -- WaitForChild on a joint this
@@ -248,6 +252,11 @@ end
 
 -- Preload animations
 function playAnimation(animName, transitionTime, humanoid)
+
+	-- One gate for every caller, events included: an attack plays alone or not at all
+	if Figure:GetAttribute(ATTACK_LOCK) then
+		return
+	end
 
 	local roll = math.random(1, animTable[animName].totalWeight)
 	local origRoll = roll
@@ -584,6 +593,15 @@ end
 -- Emote bindable hook removed: PlayEmote is a BindableFunction child that ships with
 -- Roblox's injected Animate instance, not with the source file Rojo builds.
 -- main program
+
+-- move() re-plays every pose except Standing on its own, so only that one is nudged
+Figure:GetAttributeChangedSignal(ATTACK_LOCK):Connect(function()
+	if Figure:GetAttribute(ATTACK_LOCK) then
+		stopAllAnimations()
+	elseif pose == "Standing" then
+		playAnimation("idle", 0.1, Humanoid)
+	end
+end)
 
 -- initialize to idle
 playAnimation("idle", 0.1, Humanoid)

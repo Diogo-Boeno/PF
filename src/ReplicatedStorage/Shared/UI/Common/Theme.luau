@@ -41,6 +41,16 @@ local Theme = {
 		miss = Color3.fromRGB(128, 128, 136), -- Miss — dead gray
 	},
 
+	-- vitals — same sanctioned exception as `judge`. A health bar has to read in
+	-- peripheral vision mid-fight, and the monochrome ramp cannot do that. Burnt,
+	-- not neon, so it still sits in the AAA-indie tone.
+	vitals = {
+		health = Color3.fromRGB(190, 98, 50),
+		healthLow = Color3.fromRGB(201, 61, 61), -- the danger red, once it matters
+		posture = Color3.fromRGB(202, 168, 92),
+		track = Color3.fromRGB(16, 16, 19),
+	},
+
 	font = {
 		heading = Font.new(FONT_FAMILY, Enum.FontWeight.Bold),
 		strong = Font.new(FONT_FAMILY, Enum.FontWeight.SemiBold),
@@ -75,6 +85,7 @@ export type Theme = typeof(Theme)
 
 table.freeze(Theme.color)
 table.freeze(Theme.judge)
+table.freeze(Theme.vitals)
 table.freeze(Theme.font)
 table.freeze(Theme.textSize)
 table.freeze(Theme.radius)

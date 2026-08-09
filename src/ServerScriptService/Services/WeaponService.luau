@@ -31,16 +31,34 @@ local function stunned(player: Player): boolean
 	return player:GetAttribute(Config.stunAttribute) == true
 end
 
+-- Presentation is decided where the outcome is decided, so no client has to guess
+-- whether its own swing landed, was blocked or got parried
+local function broadcastFx(event: string, at: BasePart?)
+	if at then
+		Net.FireAllClients("Fx", event, at.Position)
+	end
+end
+
 local function setPosture(player: Player, value: number)
 	local clamped = math.clamp(value, 0, Guard.postureMax)
 	posture[player] = clamped
-	player:SetAttribute(Config.postureAttribute, clamped)
+
+	-- Decay steps every frame. Replicating the raw float would be 60 writes a second
+	-- per player for movement no UI can resolve; whole points are what a bar shows.
+	local shown = math.floor(clamped)
+	if player:GetAttribute(Config.postureAttribute) ~= shown then
+		player:SetAttribute(Config.postureAttribute, shown)
+	end
 end
 
 local function breakGuard(player: Player)
 	setPosture(player, 0)
 	guardStart[player] = nil
 	player:SetAttribute(Config.stunAttribute, true)
+
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	broadcastFx("guardBreak", if humanoid then humanoid.RootPart else nil)
 
 	task.delay(Guard.stunTime, function()
 		if player.Parent then
@@ -58,6 +76,19 @@ local function addPosture(player: Player, amount: number)
 	setPosture(player, value)
 end
 
+local function lockParry(player: Player)
+	local expiry = os.clock() + Guard.parryWhiff
+	whiffUntil[player] = expiry
+	player:SetAttribute(Config.parryLockAttribute, true)
+
+	task.delay(Guard.parryWhiff, function()
+		-- A later whiff pushed the expiry out; that timer owns the unlock
+		if player.Parent and whiffUntil[player] == expiry then
+			player:SetAttribute(Config.parryLockAttribute, false)
+		end
+	end)
+end
+
 -- A hold that never met an attack inside the window costs the parry, not the block
 local function onGuardRequest(player: Player, holding: any)
 	if holding ~= true then
@@ -72,12 +103,15 @@ local function onGuardRequest(player: Player, holding: any)
 	local now = os.clock()
 	guardStart[player] = now
 
+	-- Already locked out, so this hold is a plain block and must not re-arm anything
+	if now < (whiffUntil[player] or 0) then
+		return
+	end
+
 	task.delay(Guard.parryWindow, function()
-		if guardStart[player] ~= now then
-			return
-		end
+		-- Releasing early does not forgive it: pressing F is what commits the parry
 		if (parriedAt[player] or 0) < now then
-			whiffUntil[player] = os.clock() + Guard.parryWhiff
+			lockParry(player)
 		end
 	end)
 end
@@ -136,6 +170,32 @@ local function classFor(player: Player): any?
 	return if name then Config.classes[name] else nil
 end
 
+-- The swinger already played this locally, so it is echoed to everyone else only.
+-- Rate limited because it is the one Fx a client gets to ask for.
+local function onSwungReport(player: Player, event: any)
+	if type(event) ~= "string" or Config.swingFx[event] ~= true then
+		return
+	end
+
+	local now = os.clock()
+	if now - (lastSwingFx[player] or 0) < Config.swingFxCooldown then
+		return
+	end
+	lastSwingFx[player] = now
+
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not root then
+		return
+	end
+
+	for _, other in Players:GetPlayers() do
+		if other ~= player then
+			Net.FireClient("Fx", other, event, root.Position)
+		end
+	end
+end
+
 -- A grip the equipped weapon has no class for is not a grip the player can hold
 local function onGripRequest(player: Player, requested: any)
 	if type(requested) ~= "string" or Config.otherGrip[requested] == nil then
@@ -167,6 +227,45 @@ local function damageFor(class: any, kind: any): number?
 		return if class.aerial then class.aerial.damage else nil
 	end
 	return nil
+end
+
+-- Guard resolution, split out because an NPC swing has to go through the exact same
+-- parry and block rules a player swing does. `attacker` is nil when nobody owns the
+-- swing, which is why an NPC neither gains posture from parrying nor eats it.
+function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, attacker: Player?): string
+	local victim = Players:GetPlayerFromCharacter(target.Parent)
+	local held = if victim then guardStart[victim] else nil
+	if not victim or not held then
+		target:TakeDamage(damage)
+		broadcastFx("hit", target.RootPart)
+		return "hit"
+	end
+
+	local now = os.clock()
+
+	-- Inside the window and not locked out: the hit is refused outright
+	if now - held <= Guard.parryWindow and now >= (whiffUntil[victim] or 0) then
+		parriedAt[victim] = now
+		addPosture(victim, -Guard.parryRelief)
+		broadcastFx("parry", target.RootPart)
+
+		if attacker then
+			addPosture(attacker, Guard.parryPosture)
+			local side = parriedSide(class)
+			if side then
+				Net.FireClient("Parried", attacker, side)
+			end
+		end
+		return "parried"
+	end
+
+	-- Otherwise an ordinary block: posture always, health only on chip
+	addPosture(victim, damage * Guard.postureFactor)
+	broadcastFx("blocked", target.RootPart)
+	if class and class.chip then
+		target:TakeDamage(damage * class.chip)
+	end
+	return "blocked"
 end
 
 -- The client detects; the server decides. Nothing here trusts the report itself,
@@ -218,35 +317,13 @@ local function onHitReport(player: Player, target: any, kind: any)
 	end
 	seen[target] = now
 
-	local victim = Players:GetPlayerFromCharacter(target.Parent)
-	local held = if victim then guardStart[victim] else nil
-
-	if victim and held then
-		-- Inside the window and not locked out: the hit is refused outright
-		if now - held <= Guard.parryWindow and now >= (whiffUntil[victim] or 0) then
-			parriedAt[victim] = now
-			addPosture(victim, -Guard.parryRelief)
-			addPosture(player, Guard.parryPosture)
-
-			local side = parriedSide(class)
-			if side then
-				Net.FireClient("Parried", player, side)
-			end
-			return
-		end
-
-		-- Otherwise it is an ordinary block: posture always, health only on chip
-		addPosture(victim, damage * Guard.postureFactor)
-		if class.chip then
-			target:TakeDamage(damage * class.chip)
-		end
+	if WeaponService.resolveHit(target, damage, class, player) ~= "hit" then
 		return
 	end
 
-	target:TakeDamage(damage)
-
 	-- The target's client owns that character's physics, so a server-side shove
 	-- would just be overwritten by its next simulation step
+	local victim = Players:GetPlayerFromCharacter(target.Parent)
 	if kind == "flourish" and victim then
 		local direction = (targetRoot.Position - attackerRoot.Position) * Vector3.new(1, 0, 1)
 		if direction.Magnitude > 0 then

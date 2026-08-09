@@ -3,6 +3,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage.Data.Weapons)
@@ -18,6 +19,9 @@ local GUARD_KEY = Enum.KeyCode.F
 -- Animation events authored on every attack animation
 local START_MARKER = "Start"
 local END_MARKER = "End"
+
+-- Read by Animate.client, which otherwise keeps filling the joints an attack skips
+local ATTACK_LOCK = "AttackLock"
 
 -- Above the Core that Animate.client plays; attacks above those
 local LOCOMOTION_PRIORITY = Enum.AnimationPriority.Action
@@ -54,9 +58,17 @@ local current: AnimationTrack? = nil
 local activeKind: Kind? = nil
 local queued = false
 
+-- Debug only: an attack that ends without this is missing its Start marker
+local openedHitbox = false
+
 -- Rebuilt only when the mounted model changes, not per attack
 local hitbox: any = nil
 local hitboxModel: Model? = nil
+
+-- Shaped hitboxes: one hit per target per attack, cleared when the window opens
+local shapeHits: { [Humanoid]: boolean } = {}
+local sweepConnection: RBXScriptConnection? = nil
+local sweepBox: BoxHandleAdornment? = nil
 
 -- Built once per character and toggled, rather than instanced per dash
 local dashForce: LinearVelocity? = nil
@@ -116,6 +128,45 @@ local function rootPart(): BasePart?
 	return character:FindFirstChild("HumanoidRootPart") :: BasePart?
 end
 
+local Debug = Config.debugHitbox
+
+local function debugging(): boolean
+	local override = workspace:GetAttribute(Debug.attribute)
+	if type(override) == "boolean" then
+		return override
+	end
+	return Debug.enabled
+end
+
+-- Adorned to Terrain, whose CFrame is identity, so this CFrame is world space
+local function drawBox(cf: CFrame, size: Vector3, label: string, hits: number)
+	if not debugging() then
+		return
+	end
+
+	local box = Instance.new("BoxHandleAdornment")
+	box.Name = "HitboxDebug"
+	box.Adornee = workspace.Terrain
+	box.CFrame = cf
+	box.Size = size
+	box.Color3 = Debug.color
+	box.Transparency = Debug.transparency
+	box.ZIndex = 0
+	box.Parent = workspace.Terrain
+
+	print(`[Hitbox] {label}: {hits} hit(s)`)
+	task.delay(Debug.lifetime, function()
+		box:Destroy()
+	end)
+end
+
+local function setAttackLock(on: boolean)
+	local character = player.Character
+	if character then
+		character:SetAttribute(ATTACK_LOCK, on)
+	end
+end
+
 local function releaseHitbox()
 	if hitbox then
 		hitbox:Destroy()
@@ -142,10 +193,14 @@ local function ensureHitbox(): any?
 
 	local new = RaycastHitbox.new(model)
 	new.RaycastParams = params
-	new.Visualizer = true
-	new.DebugLog = true
+	-- One switch for rays and boxes, so nothing stays drawn after the flag is off
+	new.Visualizer = debugging()
+	new.DebugLog = debugging()
 	new.OnHit:Connect(function(_part: BasePart, hit: Humanoid)
 		Net.FireServer("WeaponHit", hit, activeKind)
+		if debugging() then
+			print(`[Hitbox] {activeKind}: hit {hit.Parent and hit.Parent.Name or "?"}`)
+		end
 	end)
 
 	hitbox = new
@@ -153,35 +208,137 @@ local function ensureHitbox(): any?
 	return new
 end
 
-local function stopHitbox()
-	if hitbox then
-		hitbox:HitStop()
+-- The library gave dedup for free via HitStop; shaped hitboxes keep their own list
+local function report(hit: Humanoid, kind: Kind): boolean
+	if shapeHits[hit] then
+		return false
+	end
+	shapeHits[hit] = true
+	Net.FireServer("WeaponHit", hit, kind)
+	return true
+end
+
+local function humanoidOf(part: BasePart): Humanoid?
+	local parent = part.Parent
+	return if parent then parent:FindFirstChildOfClass("Humanoid") else nil
+end
+
+local function overlapParams(character: Model): OverlapParams
+	local params = OverlapParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { character }
+	return params
+end
+
+local function queryBox(spec: any, kind: Kind): (CFrame?, number)
+	local root, character = rootPart(), player.Character
+	if not root or not character then
+		return nil, 0
+	end
+
+	local origin = root.CFrame * CFrame.new(spec.offset)
+	local hits = 0
+
+	for _, part in workspace:GetPartBoundsInBox(origin, spec.size, overlapParams(character)) do
+		local hit = humanoidOf(part)
+		if hit and report(hit, kind) then
+			hits += 1
+		end
+	end
+
+	return origin, hits
+end
+
+local function pointHit(spec: any, kind: Kind)
+	local origin, hits = queryBox(spec, kind)
+	if origin then
+		drawBox(origin, spec.size, kind, hits)
 	end
 end
 
--- One box query on the impact frame. The leg is short and a kick has no arc to
--- interpolate, so raycasting it would pay per-frame cost for nothing.
-local function kickBox()
-	local root = rootPart()
-	local character = player.Character
+-- Blockcast stops at the first thing it meets, which is what a thrust should do:
+-- it impales one target and a wall still blocks it
+local function castHit(spec: any, kind: Kind)
+	local root, character = rootPart(), player.Character
 	if not root or not character then
 		return
 	end
 
-	local params = OverlapParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = { character }
+	local origin = root.CFrame * CFrame.new(spec.offset)
+	local hits = 0
 
-	local origin = root.CFrame * CFrame.new(0, 0, -Config.flourish.reach)
-	local seen: { [Humanoid]: boolean } = {}
-
-	for _, part in workspace:GetPartBoundsInBox(origin, Config.flourish.size, params) do
-		local parent = part.Parent
-		local hit = parent and parent:FindFirstChildOfClass("Humanoid")
-		if hit and not seen[hit] then
-			seen[hit] = true
-			Net.FireServer("WeaponHit", hit, "flourish")
+	-- A shapecast that starts already overlapping reports nothing, so point blank
+	-- has to be answered by an overlap test before the cast is worth running
+	for _, part in workspace:GetPartBoundsInBox(origin, spec.size, overlapParams(character)) do
+		local hit = humanoidOf(part)
+		if hit and report(hit, kind) then
+			hits += 1
 		end
+	end
+
+	if hits == 0 then
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { character }
+
+		local result = workspace:Blockcast(origin, spec.size, origin.LookVector * spec.range, params)
+		if result then
+			local hit = humanoidOf(result.Instance)
+			if hit and report(hit, kind) then
+				hits = 1
+			end
+		end
+	end
+
+	-- Draw the volume actually swept, not the box at its start
+	drawBox(origin * CFrame.new(0, 0, -spec.range / 2), spec.size + Vector3.new(0, 0, spec.range), kind, hits)
+end
+
+local function stopSweep()
+	if sweepConnection then
+		sweepConnection:Disconnect()
+		sweepConnection = nil
+	end
+	if sweepBox then
+		sweepBox:Destroy()
+		sweepBox = nil
+	end
+end
+
+local function startSweep(spec: any, kind: Kind)
+	stopSweep()
+
+	if debugging() then
+		local box = Instance.new("BoxHandleAdornment")
+		box.Name = "HitboxDebug"
+		box.Adornee = workspace.Terrain
+		box.Size = spec.size
+		box.Color3 = Debug.color
+		box.Transparency = Debug.transparency
+		box.ZIndex = 0
+		box.Parent = workspace.Terrain
+		sweepBox = box
+	end
+
+	-- One adornment tracked across the window instead of one per frame
+	sweepConnection = RunService.Heartbeat:Connect(function()
+		local origin, hits = queryBox(spec, kind)
+		if not origin then
+			return
+		end
+		if sweepBox then
+			sweepBox.CFrame = origin
+		end
+		if hits > 0 and debugging() then
+			print(`[Hitbox] {kind}: {hits} hit(s)`)
+		end
+	end)
+end
+
+local function stopHitbox()
+	stopSweep()
+	if hitbox then
+		hitbox:HitStop()
 	end
 end
 
@@ -212,16 +369,71 @@ local function startDash(aerial: any)
 	end)
 end
 
-local function startHitbox(kind: Kind)
+-- Class sets the shape, the weapon scales it. Resolved once per attack, so the
+-- sweep's per-frame loop reads a table that is already final.
+local function scaled(spec: any?, reach: number): any?
+	if not spec or reach == 1 then
+		return spec
+	end
+	return {
+		shape = spec.shape,
+		size = spec.size * reach,
+		offset = spec.offset * reach,
+		range = if spec.range then spec.range * reach else nil,
+	}
+end
+
+-- No `hitbox` key means the attack cuts with the blade, same rule as everywhere else
+local function hitboxSpecFor(kind: Kind): any?
+	-- The flourish is a kick, so no weapon lengthens it
 	if kind == "flourish" then
-		kickBox()
+		return Config.flourish.hitbox
+	end
+
+	local id = player:GetAttribute(Config.attribute)
+	if type(id) ~= "number" then
+		return nil
+	end
+
+	local entry = Config.byId[id]
+	local class = classFor(id)
+	if not entry or not class then
+		return nil
+	end
+
+	local reach = if type(entry.reach) == "number" then entry.reach else 1
+
+	if kind == "heavy" then
+		return scaled(if class.heavy then class.heavy.hitbox else nil, reach)
+	end
+	if kind == "aerial" then
+		return scaled(if class.aerial then class.aerial.hitbox else nil, reach)
+	end
+	return nil
+end
+
+local function startHitbox(kind: Kind)
+	openedHitbox = true
+	table.clear(shapeHits)
+
+	local spec = hitboxSpecFor(kind)
+	if not spec then
+		local active = ensureHitbox()
+		if active then
+			activeKind = kind
+			active:HitStart()
+		end
 		return
 	end
 
-	local active = ensureHitbox()
-	if active then
-		activeKind = kind
-		active:HitStart()
+	if spec.shape == "point" then
+		pointHit(spec, kind)
+	elseif spec.shape == "cast" then
+		castHit(spec, kind)
+	elseif spec.shape == "sweep" then
+		startSweep(spec, kind)
+	else
+		warn(`[Hitbox] {kind} declares unknown shape "{spec.shape}"`)
 	end
 end
 
@@ -233,6 +445,7 @@ local function clearTracks()
 	lockedUntil = 0
 	heavyReadyAt = 0
 	stopDash()
+	setAttackLock(false)
 	releaseHitbox()
 
 	local idle, walk = idleTrack, walkTrack
@@ -310,7 +523,9 @@ end
 
 local function play(track: AnimationTrack)
 	current = track
+	openedHitbox = false
 	stopLocomotion()
+	setAttackLock(true)
 	track:Play(FADE)
 end
 
@@ -338,6 +553,12 @@ local function onAttackEnded(track: AnimationTrack)
 	lastAttackEnd = os.clock()
 
 	local kind = kindOf[track]
+
+	-- The likeliest reason a hitbox "does not work" is the marker never being authored
+	if debugging() and not openedHitbox and kind ~= "parried" then
+		warn(`[Hitbox] {kind} ended without ever opening — no "{START_MARKER}" marker?`)
+	end
+
 	if kind == "flourish" then
 		lockedUntil = lastAttackEnd + Config.endlag
 	elseif kind == "aerial" then
@@ -353,6 +574,7 @@ local function onAttackEnded(track: AnimationTrack)
 	end
 
 	queued = false
+	setAttackLock(false)
 	updateLocomotion()
 end
 
@@ -416,6 +638,16 @@ local function loadTracks(weaponId: number)
 		local parry = target:LoadAnimation(assetFor(class.parry))
 		parry.Priority = REACTION_PRIORITY
 		parry.Looped = false
+
+		-- It can outlive the hold, so it is the one that releases the pose
+		parry.Stopped:Connect(function()
+			if guarding or current then
+				return
+			end
+			setAttackLock(false)
+			updateLocomotion()
+		end)
+
 		parryTrack = parry
 	end
 	if class.parried then
@@ -512,11 +744,15 @@ local function startGuard()
 
 	guarding = true
 	stopLocomotion()
+	-- A held block owns the pose for the same reason an attack does
+	setAttackLock(true)
 
 	-- Block loops underneath from the first frame; the parry flourish rides over it
 	-- and expires on its own, so no timer decides when the hold becomes a block
 	block:Play(FADE)
-	if parryTrack then
+
+	-- Locked out means this hold is only a block, and it must read as one
+	if parryTrack and player:GetAttribute(Config.parryLockAttribute) ~= true then
 		parryTrack:Play(FADE)
 	end
 
@@ -532,11 +768,19 @@ local function stopGuard()
 	if blockTrack and blockTrack.IsPlaying then
 		blockTrack:Stop(FADE)
 	end
-	if parryTrack and parryTrack.IsPlaying then
-		parryTrack:Stop(FADE)
-	end
 
 	Net.FireServer("SetGuard", false)
+
+	-- ParryStart is a flourish, not a hold: releasing F ends the guard but the
+	-- animation plays out. Its own Stopped hands the pose back.
+	if parryTrack and parryTrack.IsPlaying then
+		return
+	end
+
+	-- An attack may have interrupted the hold and still owns the lock
+	if not current then
+		setAttackLock(false)
+	end
 	updateLocomotion()
 end
 
