@@ -134,6 +134,16 @@ local Weapons = {
 	-- controller at once, and a grounded target barely moves.
 	knockbackLift = 22,
 
+	-- Dash goes where you are steering, falling back to facing when standing still.
+	-- `animation` empty until one is authored; the movement works without it.
+	dash = {
+		animation = "",
+		speed = 70,
+		lift = 6,
+		time = 0.22,
+		cooldown = 1,
+	},
+
 	-- Every accepted equip replicates to every client
 	requestCooldown = 0.25,
 
@@ -143,6 +153,7 @@ local Weapons = {
 		flourish = true,
 		heavy = true,
 		aerial = true,
+		dash = true,
 	},
 	swingFxCooldown = 0.15,
 
@@ -182,6 +193,7 @@ local Weapons = {
 export type Weapons = typeof(Weapons)
 
 table.freeze(Weapons.rig)
+table.freeze(Weapons.dash)
 table.freeze(Weapons.debugHitbox)
 table.freeze(Weapons.swingFx)
 table.freeze(Weapons.otherGrip)

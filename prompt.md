@@ -1,18 +1,60 @@
-Algumas mecanicas a adicionar
+Documento de Game Design (GDD): Sistema de Progressão "Peregrinação & Cativeiro"
 
-1. Flourish - 85666929481197 (Animação de chute) Deve empurar o oponente. Ele fica depois do ultimo hit, servindo como um "finalizador de combo" vindo antes do endlag. Não deve ser feito com Raycast, Debata  como seria melhor fazer, a perna do jogador é muito curta, então seria inviavel usar Raycast, provavelmente seria melhor usar uma box na frente do player ou algo do tipo. ESTA ANIMAÇÃO DE FLOURISH DEVE SER PARA TODAS AS ARMAS, INDEPENDENTEMENTE DE SUA CLASSE.
+1. Visão Geral do Sistema
+O jogo deve utilizar um sistema de progressão imersivo e punitivo, focado em Dark Fantasy / Terror Realista. O jogador não sobe de nível através de um menu de pausa. A evolução exige exploração física pelo mapa (Santuários), escolhas definitivas de atributos, e a aceitação de fardos espirituais ou profanos (Votos) que alteram drasticamente a mecânica de jogo e a aparência do personagem.
 
-2. Heavy Attack - 97463310555309 (Em medium weapons: Empalada) Quando clicado "R" deve se iniciar a animação, a hitbox também deve ser feita de outra maneira, debata antes de fazer. ESTA ANIMAÇÃO DE HEAVY ATTACK DEVE SER UTILIZADA APENAS POR MEDIUM WEAPONS BASE.
+2. O Loop de Progressão (Core Loop)
+Coleta: O jogador derrota inimigos e explora o mundo para acumular Essência Bruta (moeda de XP genérica).
 
-3. Aerial Attack - 138038196043233 (Em medium weapons: Empalada de cima) Quando estiver no ar, deve -- ao invés de tocar o M1 padrão -- tocar esse ataque aéreo, hitbox a ser discutida também. ESTA ANIMAÇÃO DE AERIAL DEVE SER UTILIZADA APENAS POR MEDIUM WEAPONS BASE.
+Peregrinação: O jogador viaja até Santuários de Foco específicos no mapa (NPCs ou altares) correspondentes ao status que deseja aumentar.
 
-4. Block - 121940421100599 (Em medium one handed weapons: Block com a espada meio de lado) Quando clicar "F" deve tocar a animação de "ParryStart" e logo em seguida, ficar com a animação de Block até soltar, nesse periodo, todos os ataques devem negar o dano, porém, os jogadores terão um sistema de Postura, onde cada ataque levado enquanto estiver segurando block deve causar dano de postura (algumas armas terão Chip Damage, que será uma porcentagem do dano da arma, a ser inflingida a través do block). ESTA ANIMAÇÃO DEVE SER USADA APENAS POR MEDIUM WEAPONS ONE HANDED BASE.
+Refinamento: O jogador gasta a Essência Bruta no Santuário para "comprar" pontos exatos de um atributo específico
 
-5. Parry - 121011560408838 (ParryStart - Animação de quando o player tenta negar o atack o mais rápido possivel em um reflexo imediato por instinto, deve tocar ao pressionar "F" antes da animação do block) Um curto periodo de tempo antes do block, que, se o player conseguir reagir nesse tempo, nega totalmente o dano causado, mas, se errar o parry, deve entrar em um cooldown de Parry Whiff, onde só poderá dar parry novamente quando acabar, block continua sendo liberado, mas sem chance de parry. ESTA ANIMAÇÃO DEVE SER UTILIZADA APENAS PARA MEDIUM ONE HANDED E LIGHT WEAPONS.
+Epifania (Talentos): Ao atingir marcos de atributos (ex: Nível 10, 20), o Santuário oferece um Rito de Epifania (seleção estilo "mão de cartas"). O jogador escolhe 1 entre 3 Estigmas (talentos passivos/ativos). (Pretendo fazer uma animação onde o NPC correspondente ao seu juramento, ele aparece te propondo algumas opções que você pode escolher para seguir para sempre com ele)
 
-5.1 Parry Inflingido (81404279835578 - Impacto para a direita. 92048474041706 - Impacto para a esquerda) Quando o jogador receber um Parry de seu oponente, deve entrar em cooldown por um tempo e tocar alguma dessas duas animações aleatóriamente (Essas duas são apenas para Medium Weapons One Handed Bases). ESTAS ANIMAÇÕES DEVEM SER UTILIZADAS: Impacto para a esquerda (APENAS PARA MEDIUM ONE HANDED); Impacto para a direita (MEDIUM ONE HANDED, LIGHT WEAPONS E HEAVY WEAPONS)
+O Cativeiro (Endgame): Ao atingir requisitos altos, o jogador encontra NPCs ocultos para realizar um Voto de Cativeiro, adquirindo uma maldição permanente em troca de uma árvore de habilidades exclusiva e deformação visual.
 
+3. Mecânicas Detalhadas para Implementação
+3.1. Atributos por Linhagem (Raças e Origens)
+Os status não são universais. Cada Origem possui variáveis próprias.
 
-** Revise tudo para ver se entendeu corretamente antes de entrar em ação.
-** Todas essas implementações foram inspiradas no jogo do Roblox Deepwoken, caso queira saber mais, faça a pesquisa sobre a wiki do jogo, pois possui todas estas mecânicas, e eu seguirei usando ele como referencia até o final do projeto.
-** pergunte antes de agir
+Ação Requerida (Código): Criar dicionários/tabelas modulares para cada Origem, prefira usar o esquema de components.
+
+Exemplo - Raça "Rastejantes": Status Expansao Carnal (HP/Defesa) e Fome Predatoria (Velocidade/Lifesteal).
+
+Exemplo - Raça "Arautos": Status Fervor Cego (Dano Mágico em área/Glass Cannon) e Presenca Castigadora (Debuff em área).
+
+3.2. Santuários e Marcos (Milestones)
+O investimento de pontos é limitado pelo nível de iniciação do jogador com aquele Santuário.
+
+Ação Requerida (Código): O sistema deve validar no Servidor a localização do jogador (magnitude/hitbox do Santuário) e o "Tier" atual dele antes de permitir o gasto de Essência.
+
+Marcos: A cada X pontos investidos em um status, disparar o evento de Seleção de Estigma para o Cliente.
+
+3.3. Sistema de Estigmas (Seleção de Talentos)
+Ação Requerida (Código): Criar um pool de talentos (tabelas) categorizados por Origem, Status e Nível do Marco.
+
+A seleção deve gerar 3 opções (sem repetição) baseadas na categoria treinada.
+
+A escolha do jogador deve ser gravada na base de dados e aplicar os modificadores (ex: Lifesteal_On_Perfect_Dodge) no loop de combate.
+
+3.4. Votos de Cativeiro (Oaths / Maldições)
+O jogador só pode ter 1 Voto ativo na base de dados.
+
+A Maldição: Um debuff constante verificado pelo servidor. (Ex: Voto do Verme Pálido desativa a classe base de cura e só permite cura via execução de entidades mortas).
+
+A Recompensa: Desbloqueia acesso a uma nova SkillTree ou TalentPool específica daquele Voto.
+
+4. Diretrizes Técnicas e Estrutura de Dados (Luau/Roblox Architecture)
+Para o agente de IA: A arquitetura deve ser modular e prever a serialização segura dos dados, considerando um ambiente de client-server (Client preditivo, Server autoritativo).
+
+Requisitos de Organização:
+
+Módulos de definição puros. Configurações de Santuários, cálculos de XP, listas de talentos (Estigmas) e metadados dos Votos.
+
+Lógica de validação de transação de Essência, checagem de distância do Santuário, aplicação de debuffs das Maldições e salvamento de dados.
+
+Client: Interfaces (UI) de apresentação sombria e imersiva para o "Rito de Epifania" (escolha das cartas) e feedback visual (partículas/sons) Feitos por mim, irei compartilhar as Hierarquias.
+
+5. Direção de Arte e Feedback Visual (Para referência de scripts)
+As alterações mecânicas devem acionar atualizações visuais no modelo do personagem para refletir a vibe de terror realista.

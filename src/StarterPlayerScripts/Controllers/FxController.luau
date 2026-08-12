@@ -76,8 +76,32 @@ local function playEffect(name: string, cframe: CFrame)
 	Debris:AddItem(anchor, longest + 0.1)
 end
 
--- `event` keys into both tables, so one name carries sound and particle together
-function FxController.play(event: string, position: Vector3)
+local function playHighlight(event: string, subject: Model)
+	local spec = Config.highlight[event]
+	if not spec then
+		return
+	end
+
+	-- Replaced rather than stacked, so repeated casts do not pile outlines up
+	local existing = subject:FindFirstChild("FxHighlight")
+	if existing then
+		existing:Destroy()
+	end
+
+	local outline = Instance.new("Highlight")
+	outline.Name = "FxHighlight"
+	outline.FillTransparency = 1
+	outline.OutlineColor = spec.color
+	outline.DepthMode = Enum.HighlightDepthMode.Occluded
+	outline.Adornee = subject
+	outline.Parent = subject
+
+	Debris:AddItem(outline, spec.duration)
+end
+
+-- `event` keys into every table, so one name carries sound, particle and outline.
+-- `subject` is the character it happened to, when there is one.
+function FxController.play(event: string, position: Vector3, subject: Model?)
 	local list = Config.sound[event]
 	if list then
 		local name = pick(list)
@@ -88,7 +112,19 @@ function FxController.play(event: string, position: Vector3)
 
 	local effect = Config.effect[event]
 	if effect then
-		playEffect(effect, CFrame.new(position))
+		local name = if type(effect) == "table" then effect.name else effect
+		local at = CFrame.new(position)
+
+		-- Local-space offset needs the subject's orientation to mean anything
+		if type(effect) == "table" and effect.offset then
+			local pivot = if subject then subject:GetPivot() else at
+			at = (pivot - pivot.Position + position) * CFrame.new(effect.offset)
+		end
+		playEffect(name, at)
+	end
+
+	if subject then
+		playHighlight(event, subject)
 	end
 end
 
@@ -104,8 +140,8 @@ function FxController.Start()
 	end
 
 	-- Last, because Net.On yields on WaitForChild
-	Net.On("Fx", function(event: string, position: Vector3)
-		FxController.play(event, position)
+	Net.On("Fx", function(event: string, position: Vector3, subject: Model?)
+		FxController.play(event, position, subject)
 	end)
 end
 

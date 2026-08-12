@@ -16,6 +16,7 @@ local FADE = 0.1
 local HEAVY_KEY = Enum.KeyCode.R
 local GRIP_KEY = Enum.KeyCode.Y
 local GUARD_KEY = Enum.KeyCode.F
+local DASH_KEY = Enum.KeyCode.Q
 
 -- Animation events authored on every attack animation
 local START_MARKER = "Start"
@@ -49,6 +50,7 @@ local heavyTrack: AnimationTrack? = nil
 local aerialTrack: AnimationTrack? = nil
 local blockTrack: AnimationTrack? = nil
 local parryTrack: AnimationTrack? = nil
+local dashTrack: AnimationTrack? = nil
 local parriedTracks: { [string]: AnimationTrack } = {}
 local kindOf: { [AnimationTrack]: Kind } = {}
 
@@ -83,6 +85,7 @@ local lastAttackEnd = 0
 local chainReadyAt = 0
 local heavyReadyAt = 0
 local aerialReadyAt = 0
+local dashReadyAt = 0
 
 -- The one lock that is meant to stop everything: being parried is a stagger
 local staggerUntil = 0
@@ -439,7 +442,7 @@ local function announceSwing(kind: Kind)
 
 	local root = rootPart()
 	if root then
-		FxController.play(kind, root.Position)
+		FxController.play(kind, root.Position, player.Character)
 	end
 	Net.FireServer("Swung", kind)
 end
@@ -769,6 +772,34 @@ local function heavy()
 	play(track)
 end
 
+local function dash()
+	local now = os.clock()
+	local living = humanoid
+	if not living or stunned() or now < staggerUntil or now < dashReadyAt then
+		return
+	end
+
+	local root = rootPart()
+	if not root then
+		return
+	end
+
+	-- Steering wins over facing: a dash is a movement option, and reading MoveDirection
+	-- is what lets you dash sideways or back without turning the character first
+	local steer = living.MoveDirection
+	local direction = if steer.Magnitude > 0 then steer.Unit else root.CFrame.LookVector
+
+	local spec = Config.dash
+	dashReadyAt = now + spec.cooldown
+	applyImpulse(direction, spec.speed, spec.lift, spec.time)
+
+	if dashTrack then
+		dashTrack:Play(FADE)
+	end
+	FxController.play("dash", root.Position, player.Character)
+	Net.FireServer("Swung", "dash")
+end
+
 -- Server rejects a grip the weapon has no class for, so nothing is checked here
 local function toggleGrip()
 	if current then
@@ -855,6 +886,12 @@ local function teardownCharacter()
 	table.clear(connections)
 
 	stopDash()
+	dashReadyAt = 0
+	if dashTrack then
+		dashTrack:Stop(FADE)
+		dashTrack:Destroy()
+		dashTrack = nil
+	end
 	if dashForce then
 		-- Destroy the attachment, not the force: the force is its child
 		local attachment = dashForce.Parent
@@ -900,6 +937,14 @@ local function setupCharacter(character: Model)
 	animator = newAnimator
 	dashForce = buildDashForce(root)
 
+	-- Loaded per character, not per weapon: dashing works unarmed
+	if Config.dash.animation ~= "" then
+		local track = newAnimator:LoadAnimation(assetFor(Config.dash.animation))
+		track.Priority = REACTION_PRIORITY
+		track.Looped = false
+		dashTrack = track
+	end
+
 	table.insert(connections, newHumanoid:GetPropertyChangedSignal("MoveDirection"):Connect(updateLocomotion))
 
 	-- Landing ends the glide, so a low aerial does not skate along the floor
@@ -941,6 +986,8 @@ function CombatController.Start()
 			toggleGrip()
 		elseif input.KeyCode == GUARD_KEY then
 			startGuard()
+		elseif input.KeyCode == DASH_KEY then
+			dash()
 		end
 	end)
 

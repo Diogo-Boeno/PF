@@ -2,8 +2,11 @@
 
 Jogo Roblox solo do Cosmo. Nome de trabalho: **RAGDOLL TACTICS**.
 
-Estado: **base técnica**. Existe framework, kit de UI, rig custom animado e equip de
-armas. Não existe gameplay. O gênero não está fechado — **não assuma um**.
+Estado: **base técnica**. Existe framework, kit de UI, rig custom animado, combate
+(combo, guarda, parry, postura) e NPC de treino. Não existe progressão nem persistência.
+
+Gênero: **RPG de ação dark fantasy**, referência declarada em Deepwoken. Ver "Mundo e
+progressão" — a terminologia própria vale desde já.
 
 ## Stack
 
@@ -21,8 +24,9 @@ no `wally.toml` sem um único `require` em `src/`. `blink` e `asphalt` estão pi
 Aftman e não têm arquivo de config no repo. Antes de usar qualquer um deles, pergunte —
 estar instalado não é decisão tomada.
 
-`profilestore` presente **não significa que há persistência**. Não há. Introduzir é
-decisão de arquitetura.
+`profilestore` presente **não significa que há persistência**. Ainda não há — mas está
+decidido que ela virá por `profilestore`, e ela é pré-requisito da progressão, não um
+extra. Nada de Santuário antes disso.
 
 **RaycastHitboxV4** não vem do Wally: o `lib/` de
 [Swordphin/raycastHitboxRbxl](https://github.com/Swordphin/raycastHitboxRbxl) está
@@ -105,6 +109,78 @@ de um pouso) e o branch `Running` conferindo `AssemblyLinearVelocity`, porque
 
 **SmartBone** (`SmartBoneController`) vem de `ReplicatedStorage.SmartBone` — não está no
 Wally nem em `src/`. Vive no place file e **não é versionado**: clone limpo não tem.
+
+## Mundo e progressão
+
+**Ainda não implementado.** O GDD vive em `prompt.md` e é leitura, não backlog — não
+execute nada de lá sem o Cosmo pedir pelo nome.
+
+Referência declarada: **Deepwoken**, com desvios próprios. O maior deles é de
+vocabulário e não é negociável:
+
+| Aqui | Deepwoken |
+|---|---|
+| **Echo** | Song — a força cósmica do mundo |
+| **Echoes** | Attunements — os poderes mágicos |
+| Raw Essence | XP genérico, gasto em Santuário |
+| Santuário | onde se compra ponto de atributo, presencialmente |
+| Rito | o gate entre faixas de progressão |
+| Estigma | talento escolhido 1-de-3 no Rito |
+| Voto de Cativeiro | oath permanente, um por personagem |
+
+**Nunca escreva "Song" nem "Attunement" no código, em comentário ou em UI.** São Echo e
+Echoes, sempre.
+
+Três eixos independentes, como no Deepwoken: **atributos**, **proficiência de arma**
+(Light / Medium / Heavy) e **Echoes**. Proficiência não é atributo, e Echo não é
+nenhum dos dois.
+
+### Atributos
+
+Seis universais, em dois grupos:
+
+| Corpo | Mente |
+|---|---|
+| Strength | Insight |
+| Fortitude | Presence |
+| Swiftness | Willpower |
+
+**Origem adiciona três atributos próprios, nunca modifica os seis.** Então a ficha de um
+personagem é sempre `6 + 3`, e os seis universais significam a mesma coisa para todo
+mundo — o que mantém a fórmula de dano uma só.
+
+### Nível
+
+Cap em **30**, com um desafio no **20** que destrava o resto. Nível e ponto de atributo
+são contas separadas: a curva do Santuário abaixo governa pontos dentro de **um**
+atributo, não o nível do personagem.
+
+### Curva do Santuário
+
+| Faixa | Custo | Como abre |
+|---|---|---|
+| 1–15 | base | livre |
+| 15 → 16 | — | **Rito** no Santuário + escolher um Estigma |
+| 16–30 | dobro | — |
+| 30 → 40 | — | **Rito** novo + oferenda rara |
+
+Os tetos são o design: não se compra o ponto 16 sem ter ido a um Santuário e escolhido
+um Estigma. Progressão é presencial e irreversível, nunca um menu de pausa.
+
+Os marcos citados no GDD (10, 20) são exemplo **do evento de escolha de cartas**, não
+desta curva. Quem manda em custo e teto é a tabela acima.
+
+### Fórmula de dano
+
+Do Deepwoken, e o formato importa:
+
+```
+Damage = 0.00075 * [Base * Scaling * Attribute * (1 + Proficiency * 0.065)] + Base
+```
+
+Atributo **multiplica** o base, não soma nele — arma ruim continua ruim com stat alto.
+E proficiência multiplica só a parcela vinda do atributo, nunca o `Base`: proficiência
+sem atributo investido não faz nada.
 
 ## Armas
 

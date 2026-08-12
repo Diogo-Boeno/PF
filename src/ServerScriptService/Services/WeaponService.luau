@@ -193,7 +193,7 @@ local function onSwungReport(player: Player, event: any)
 
 	for _, other in Players:GetPlayers() do
 		if other ~= player then
-			Net.FireClient("Fx", other, event, root.Position)
+			Net.FireClient("Fx", other, event, root.Position, character)
 		end
 	end
 end

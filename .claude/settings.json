@@ -73,7 +73,13 @@
       "PowerShell(Set-Location \"c:\\\\Users\\\\diogo\\\\Projects\\\\PF\"; stylua src/StarterPlayerScripts/Controllers/StatsController.luau src/ServerScriptService/Services/WeaponService.luau; if \\($?\\) { selene src/StarterPlayerScripts/Controllers/StatsController.luau src/ServerScriptService/Services/WeaponService.luau }; rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\")",
       "PowerShell(Set-Location \"c:\\\\Users\\\\diogo\\\\Projects\\\\PF\"; stylua src/StarterPlayerScripts/Controllers/StatsController.luau; if \\($?\\) { selene src/StarterPlayerScripts/Controllers/StatsController.luau }; rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\")",
       "PowerShell(Set-Location \"c:\\\\Users\\\\diogo\\\\Projects\\\\PF\"; stylua src/StarterPlayerScripts/Controllers/CombatController.luau; if \\($?\\) { selene src/StarterPlayerScripts/Controllers/CombatController.luau }; rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\")",
-      "PowerShell(Set-Location \"c:\\\\Users\\\\diogo\\\\Projects\\\\PF\"; stylua src/ServerScriptService/Services/WeaponService.luau; if \\($?\\) { selene src/ServerScriptService/Services/WeaponService.luau }; rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\")"
+      "PowerShell(Set-Location \"c:\\\\Users\\\\diogo\\\\Projects\\\\PF\"; stylua src/ServerScriptService/Services/WeaponService.luau; if \\($?\\) { selene src/ServerScriptService/Services/WeaponService.luau }; rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\")",
+      "WebFetch(domain:deepwoken.fandom.com)",
+      "WebFetch(domain:deepwokenlibrary.fandom.com)",
+      "WebFetch(domain:deepwoken-wiki.wikidot.com)",
+      "WebFetch(domain:pilgrammed.miraheze.org)",
+      "PowerShell(Set-Location \"c:\\\\Users\\\\diogo\\\\Projects\\\\PF\"; stylua data/shared/Weapons.luau data/shared/Fx.luau src/ServerScriptService/Services/WeaponService.luau src/StarterPlayerScripts/Controllers/FxController.luau src/StarterPlayerScripts/Controllers/CombatController.luau; if \\($?\\) { selene data/shared/Weapons.luau data/shared/Fx.luau src/ServerScriptService/Services/WeaponService.luau src/StarterPlayerScripts/Controllers/FxController.luau src/StarterPlayerScripts/Controllers/CombatController.luau }; rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\")",
+      "PowerShell(Set-Location \"c:\\\\Users\\\\diogo\\\\Projects\\\\PF\"; rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\diogo\\.claude\\projects\\c--Users-diogo-Projects-PF\\memory"
