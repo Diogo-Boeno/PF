@@ -320,7 +320,8 @@ substituem o par da classe inteiro, porque agachar é postura e não jeito de se
 backstab.
 
 **M1 agachado é o Uppercut**, nunca um swing — postura deliberada ganha da ordem da
-corrente. Hitbox `point` igual à do flourish, e acertar **levanta os dois**: o prêmio é
+corrente. Dar o golpe **desagacha**: ele nasce subindo, e deixar a postura agachada
+faria uma pose de crouch brigar com uma animação que se levanta. Hitbox `point` igual à do flourish, e acertar **levanta os dois**: o prêmio é
 uma janela compartilhada no ar, não distância. O `Launch` vai pros dois clients, cada um
 dono da própria física.
 
@@ -331,10 +332,29 @@ Duas impulsões distintas, e a diferença importa:
 - **`carry`** — no lançamento. Vai pros **dois**, com o mesmo heading vindo do server,
   senão a vítima ficaria suspensa onde estava enquanto o atacante passa reto.
 
-O lançamento tem duas fases (`riseTime` depois `hangTime`) porque um impulso único
-descreveria um arco e cairia de volta — a suspensão *é* a mecânica. O `carry` cai pela
-metade durante o hover: o suficiente pra continuarem juntos, não pra saírem voando antes
-da janela acabar.
+O lançamento tem duas fases porque um impulso único descreveria um arco e cairia de
+volta — a suspensão *é* a mecânica:
+
+1. **Subida** (`riseTime`) — constraint em `Vector`, com o carry
+2. **Suspensão** (`hangTime`) — constraint em `Line` no eixo Y
+
+O modo `Line` é o que permite **se mover no ar**: ele prende só a altura e deixa X e Z
+com o Humanoid. `Vector` prende os três eixos e o jogador fica congelado, o que lê como
+travamento. A `WalkSpeed` cai pra `airSpeed` durante a janela — pouca deriva, não zero.
+
+`ChangeState(Freefall)` nos dois lados: um Humanoid que se acha em pé puxa o corpo de
+volta ao chão contra a força, e era isso que teleportava de volta.
+
+**Durante o juggle o Aerial não existe** — M1 responde com a corrente normal. O uppercut
+comprou uma janela pra combar, não uma plataforma pra mergulhar.
+
+Quem leva toma `victimStun`, mais longo que o `hitstun` comum. Com só o hitstun padrão a
+vítima responde com M1 no ar e apaga o prêmio inteiro — acertar um uppercut tem que
+comprar um turno, não um empate.
+
+Player é silenciado pelo remote `Stagger`; corpo server-owned lê o atributo
+`StunnedUntil` do character, porque não existe client pra avisar. Dois caminhos pela
+mesma razão de sempre: quem é dono do corpo é quem aplica.
 
 Duas travas são globais de propósito:
 

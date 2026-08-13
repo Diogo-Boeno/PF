@@ -97,8 +97,28 @@ local function armWeapon(npc: Npc): Model?
 	return weapon
 end
 
+local function silencedUntil(npc: Npc): number
+	local value = npc.model:GetAttribute(Config.stunUntilAttribute)
+	return if type(value) == "number" then value else 0
+end
+
+-- Stops whatever is mid-swing. A think-loop check only gates STARTING an attack, so
+-- without this a swing thrown a frame before the uppercut still lands from mid-air.
+local function cancelSwings(npc: Npc)
+	for _, track in npc.swings do
+		if track.IsPlaying then
+			track:Stop(0.1)
+		end
+	end
+end
+
 -- The server owns this rig, so it knows where it is looking. No blade raycast needed.
 local function strike(npc: Npc, damage: number)
+	-- Second gate: the marker can fire from an animation that was already running
+	if os.clock() < silencedUntil(npc) then
+		return
+	end
+
 	local params = OverlapParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { npc.model }
@@ -208,6 +228,14 @@ local function think(npc: Npc)
 			end
 
 			local now = os.clock()
+
+			-- Set by whoever staggered this rig. Players get the same silence through
+			-- the Stagger remote; a server-owned body reads it off the character.
+			if now < silencedUntil(npc) then
+				cancelSwings(npc)
+				continue
+			end
+
 			-- Being parried costs the NPC its turn, same as it costs a player theirs
 			if now >= npc.nextAttack and now >= npc.lockedUntil then
 				npc.nextAttack = now + ATTACK_COOLDOWN
@@ -257,8 +285,17 @@ local function bind(model: Instance)
 	loadSwings(npc)
 	task.spawn(think, npc)
 
+	-- Cancel the moment the stun lands, not on the next think tick: a quarter second
+	-- is long enough for an already-running swing to connect from mid-air
+	local silencer = model:GetAttributeChangedSignal(Config.stunUntilAttribute):Connect(function()
+		if os.clock() < silencedUntil(npc) then
+			cancelSwings(npc)
+		end
+	end)
+
 	return function()
 		npc.alive = false
+		silencer:Disconnect()
 	end
 end
 

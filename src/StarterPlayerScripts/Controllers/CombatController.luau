@@ -11,6 +11,7 @@ local Net = require(ReplicatedStorage.Shared.Framework.Net)
 local RaycastHitbox = require(ReplicatedStorage.RaycastHitbox)
 local WeaponController = require(script.Parent.WeaponController)
 local FxController = require(script.Parent.FxController)
+local MovementController = require(script.Parent.MovementController)
 
 local FADE = 0.1
 local HEAVY_KEY = Enum.KeyCode.R
@@ -127,6 +128,13 @@ local dashUntil = 0
 
 -- The one lock that is meant to stop everything: being parried is a stagger
 local staggerUntil = 0
+
+-- Suspended by an uppercut. Being up here is not the same as jumping: the aerial is
+-- off and the normal chain answers M1, so the window is a fight and not a dive.
+local juggleUntil = 0
+
+-- Captured on spawn so the juggle can restore it; WalkSpeed is borrowed, not owned
+local baseWalkSpeed = 16
 
 local connections: { RBXScriptConnection } = {}
 
@@ -415,6 +423,7 @@ local function applyImpulse(direction: Vector3, speed: number, vertical: number?
 	end
 
 	local y = if vertical then vertical else root.AssemblyLinearVelocity.Y
+	force.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
 	force.VectorVelocity = Vector3.new(direction.X * speed, y, direction.Z * speed)
 	force.Enabled = true
 
@@ -917,6 +926,10 @@ local function swing()
 	if crouching() and uppercutTrack and not current and now >= uppercutReadyAt then
 		play(uppercutTrack)
 
+		-- The move rises out of the crouch, so the stance follows the animation rather
+		-- than leaving a crouched pose fighting a standing swing
+		MovementController.uncrouch()
+
 		-- Lunge on the swing, not on the hit: it is what lets the blow reach at all
 		local root = rootPart()
 		if root then
@@ -929,7 +942,10 @@ local function swing()
 	-- The aerial outranks M1 while it is off cooldown, and takes no buffering. Once it
 	-- is spent the chain answers in the air too: the alternative is M1 doing nothing
 	-- mid-air, which reads as the input being dropped.
-	if airborne() and aerialTrack and not current and now >= aerialReadyAt then
+	--
+	-- Never during a juggle: up there the normal chain applies, because the uppercut
+	-- bought a window to combo in, not a platform to dive from.
+	if now >= juggleUntil and airborne() and aerialTrack and not current and now >= aerialReadyAt then
 		playAerial()
 		return
 	end
@@ -1085,6 +1101,28 @@ end
 --
 -- `direction` comes from the server so attacker and victim carry the SAME heading —
 -- otherwise the victim would hang where they stood while the attacker sailed past.
+-- Holds height with the constraint in Line mode along Y, which leaves X and Z to the
+-- Humanoid. A Vector constraint pins all three axes and the player cannot budge.
+local function holdHeight(duration: number)
+	local force = dashForce
+	if not force then
+		return
+	end
+
+	force.VelocityConstraintMode = Enum.VelocityConstraintMode.Line
+	force.LineDirection = Vector3.yAxis
+	force.LineVelocity = 0
+	force.Enabled = true
+
+	dashToken += 1
+	local token = dashToken
+	task.delay(duration, function()
+		if dashToken == token then
+			stopDash()
+		end
+	end)
+end
+
 local function applyLaunch(rise: number, riseTime: number, hangTime: number, direction: Vector3, carry: number)
 	if type(rise) ~= "number" or type(riseTime) ~= "number" or type(hangTime) ~= "number" then
 		return
@@ -1093,11 +1131,27 @@ local function applyLaunch(rise: number, riseTime: number, hangTime: number, dir
 	local heading = if typeof(direction) == "Vector3" then direction else Vector3.zero
 	local speed = if type(carry) == "number" then carry else 0
 
+	-- The Humanoid tries to snap back to the ground it thinks it is standing on.
+	-- Forcing Freefall is what stops it fighting the launch and yanking the body down.
+	local living = humanoid
+	if living then
+		living:ChangeState(Enum.HumanoidStateType.Freefall)
+		living.WalkSpeed = Config.uppercut.airSpeed
+	end
+
+	juggleUntil = os.clock() + riseTime + hangTime
 	applyImpulse(heading, speed, rise, riseTime)
+
 	task.delay(riseTime, function()
-		-- The carry belongs to the launch, not the hang: once they are up they hold
-		-- position so the window is a place to fight, not a ride
-		applyImpulse(Vector3.zero, 0, 0, hangTime)
+		-- The carry belongs to the launch, not the hang
+		holdHeight(hangTime)
+	end)
+
+	task.delay(riseTime + hangTime, function()
+		local ended = humanoid
+		if ended then
+			ended.WalkSpeed = baseWalkSpeed
+		end
 	end)
 end
 
@@ -1168,6 +1222,8 @@ local function setupCharacter(character: Model)
 	humanoid = newHumanoid
 	animator = newAnimator
 	dashForce = buildDashForce(root)
+	baseWalkSpeed = newHumanoid.WalkSpeed
+	juggleUntil = 0
 
 	-- Loaded per character, not per weapon: dashing, crouching and the uppercut all
 	-- work unarmed

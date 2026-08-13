@@ -190,6 +190,12 @@ local function setupCharacter(character: Model)
 	)
 end
 
+-- Called by CombatController when the uppercut fires: the move stands you up, so the
+-- stance has to agree instead of leaving you crouched inside a rising animation
+function MovementController.uncrouch()
+	setCrouching(false)
+end
+
 function MovementController.Start()
 	UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
 		if gameProcessed then

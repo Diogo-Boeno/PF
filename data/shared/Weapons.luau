@@ -78,6 +78,15 @@ local Weapons = {
 		-- Carried into the launch by BOTH, so they travel together instead of the
 		-- victim hanging where they stood while the attacker sails past
 		carrySpeed = 16,
+
+		-- WalkSpeed while suspended. Not zero: being frozen mid-air reads as a freeze
+		-- bug, and a little drift lets both fighters position inside the window.
+		airSpeed = 6,
+
+		-- The victim's silence up there. Longer than `hitstun` on purpose: the point of
+		-- landing an uppercut is buying a turn, and plain hitstun is short enough that
+		-- the victim can answer with M1 and erase the whole reward.
+		victimStun = 1.1,
 		cooldown = 2,
 		hitbox = {
 			shape = "point",
@@ -222,6 +231,10 @@ local Weapons = {
 
 	postureAttribute = "Posture",
 	stunAttribute = "Stunned",
+
+	-- On the character, as a deadline. Players are silenced through the `Stagger`
+	-- remote; a server-owned NPC has no client to send that to, so it reads this.
+	stunUntilAttribute = "StunnedUntil",
 	parryLockAttribute = "ParryLocked",
 
 	-- On the character, not the Player: NPCs carry these too, and they die with the rig

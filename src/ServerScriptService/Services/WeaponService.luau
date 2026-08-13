@@ -351,7 +351,13 @@ end
 -- Server-owned bodies get launched here, mirroring the client's two phases. Without
 -- this an NPC just stands there while the attacker rises, and the juggle has nobody
 -- in it.
-local function launchHere(root: BasePart, heading: Vector3, spec: any)
+local function launchHere(root: BasePart, heading: Vector3, spec: any, humanoid: Humanoid?)
+	-- Same reason as the client path: a Humanoid that believes it is standing will
+	-- drag the body back down against the force
+	if humanoid then
+		humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+	end
+
 	local anchor = Instance.new("Attachment")
 	anchor.Name = "Launch"
 	anchor.Parent = root
@@ -363,10 +369,13 @@ local function launchHere(root: BasePart, heading: Vector3, spec: any)
 	force.VectorVelocity = Vector3.new(heading.X * spec.carrySpeed, spec.riseSpeed, heading.Z * spec.carrySpeed)
 	force.Parent = anchor
 
-	-- Carry belongs to the launch, not the hang: they hold position once up
+	-- Carry belongs to the launch, not the hang. Line mode along Y holds the height
+	-- while leaving the horizontal axes free, so a juggled body can still drift.
 	task.delay(spec.riseTime, function()
 		if force.Parent then
-			force.VectorVelocity = Vector3.zero
+			force.VelocityConstraintMode = Enum.VelocityConstraintMode.Line
+			force.LineDirection = Vector3.yAxis
+			force.LineVelocity = 0
 		end
 	end)
 
@@ -463,8 +472,16 @@ local function onHitReport(player: Player, target: any, kind: any)
 		local victim = Players:GetPlayerFromCharacter(target.Parent)
 		if victim then
 			Net.FireClient("Launch", victim, spec.riseSpeed, spec.riseTime, spec.hangTime, heading, spec.carrySpeed)
+			-- Overrides the plain hitstun resolveHit already sent: max() on the client
+			-- means the longer of the two wins
+			Net.FireClient("Stagger", victim, spec.victimStun)
 		else
-			launchHere(targetRoot, heading, spec)
+			launchHere(targetRoot, heading, spec, target)
+		end
+
+		-- Read by anything server-owned, which has no client to be told
+		if targetCharacter then
+			targetCharacter:SetAttribute(Config.stunUntilAttribute, os.clock() + spec.victimStun)
 		end
 
 		Net.FireClient("Launch", player, spec.riseSpeed, spec.riseTime, spec.hangTime, heading, spec.carrySpeed)
