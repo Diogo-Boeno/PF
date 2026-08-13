@@ -199,10 +199,27 @@ local Weapons = {
 	-- closes or breaks spacing, in the air it is a glide that buys distance and hang
 	-- time. Same key, different physics.
 	dash = {
-		animation = "",
 		cooldown = 1,
 		ground = { speed = 42, lift = 4, time = 0.2 },
 		air = { speed = 32, lift = 12, time = 0.32 },
+
+		-- Picked from the dash direction in the character's own space, so the clip
+		-- matches where the body actually goes
+		clips = {
+			forward = "rbxassetid://75477975155159",
+			backward = "rbxassetid://110233560124664",
+			right = "rbxassetid://136054039921519",
+			left = "rbxassetid://124452693988963",
+		},
+		cancel = "rbxassetid://81330636825906",
+
+		-- Invulnerable while dashing, but for exactly ONE hit: dodging consumes it.
+		-- A dash that ate a whole flurry would be strictly better than any guard.
+		iframes = 0.2,
+
+		-- Cancelling with M2 spends the dash to buy a longer read, mirroring how a
+		-- parry buys its frames. Still one hit.
+		cancelIframes = 0.22,
 	},
 
 	-- Every accepted equip replicates to every client
@@ -287,6 +304,7 @@ table.freeze(Weapons.crouch)
 table.freeze(Weapons.uppercut)
 table.freeze(Weapons.dash.ground)
 table.freeze(Weapons.dash.air)
+table.freeze(Weapons.dash.clips)
 table.freeze(Weapons.dash)
 table.freeze(Weapons.debugHitbox)
 table.freeze(Weapons.swingFx)

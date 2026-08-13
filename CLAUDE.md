@@ -384,6 +384,23 @@ Dash tem **dois perfis**: `dash.ground` é uma arrancada curta pra abrir ou fech
 espaço, `dash.air` é uma planagem com mais sustentação e menos velocidade. Mesma tecla,
 físicas diferentes, porque no ar e no chão ele resolve problemas diferentes.
 
+A animação sai da direção convertida pro **espaço do personagem**
+(`VectorToObjectSpace`), então o clipe casa com pra onde o corpo realmente vai — não com
+pra onde a câmera aponta.
+
+### I-frames e cancelamento
+
+Dash é invulnerável, mas **por um golpe só**: `dodgeUntil` é zerado no contato. Duração
+que aguentasse uma rajada seria estritamente melhor que qualquer guarda.
+
+`M2` durante o dash cancela: para a força, corta o clipe e toca `DashCancel`. Em troca,
+os i-frames são estendidos (`cancelIframes`) — mesma ideia dos parry frames, gastar o
+recurso compra uma leitura mais longa. **Continua sendo um golpe só.**
+
+O server é dono da janela; o client só reporta que dashou, e o report obedece ao mesmo
+`cooldown` que o client obedece — spammar o remote não compra mais invulnerabilidade do
+que dashar de verdade.
+
 `F` segurado durante um ataque **fica lembrado** (`guardHeld`) e a guarda sobe assim que
 o golpe termina. Sem isso, aparar depois de atacar exigiria um clique frame-perfect na
 virada — timing de execução, não de leitura, que é o oposto do que esse combate quer.

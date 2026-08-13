@@ -68,7 +68,9 @@ local heavyTrack: AnimationTrack? = nil
 local aerialTrack: AnimationTrack? = nil
 local blockTrack: AnimationTrack? = nil
 local parryTrack: AnimationTrack? = nil
-local dashTrack: AnimationTrack? = nil
+local dashTracks: { [string]: AnimationTrack } = {}
+local dashCancelTrack: AnimationTrack? = nil
+local dashClip: AnimationTrack? = nil
 local uppercutTrack: AnimationTrack? = nil
 
 -- Universal locomotion, loaded per character: crouching is not a weapon stance
@@ -1006,11 +1008,44 @@ local function dash()
 	dashUntil = now + spec.time
 	applyImpulse(direction, spec.speed, spec.lift, spec.time)
 
-	if dashTrack then
-		dashTrack:Play(FADE)
+	-- Clip chosen in the character's own space, so it matches where the body goes
+	local local_ = root.CFrame:VectorToObjectSpace(direction)
+	local name
+	if math.abs(local_.Z) >= math.abs(local_.X) then
+		name = if local_.Z < 0 then "forward" else "backward"
+	else
+		name = if local_.X > 0 then "right" else "left"
 	end
+
+	dashClip = dashTracks[name]
+	if dashClip then
+		dashClip:Play(FADE)
+	end
+
 	FxController.play("dash", root.Position, player.Character)
 	Net.FireServer("Swung", "dash")
+	Net.FireServer("Dash", false)
+end
+
+-- M2 mid-dash: kill the movement and the clip on the spot, and buy a longer read for
+-- the one hit the i-frames still owe. Spending the dash is the price of the extension.
+local function cancelDash()
+	if os.clock() >= dashUntil then
+		return
+	end
+
+	stopDash()
+	dashUntil = 0
+
+	if dashClip then
+		dashClip:Stop(FADE)
+		dashClip = nil
+	end
+	if dashCancelTrack then
+		dashCancelTrack:Play(FADE)
+	end
+
+	Net.FireServer("Dash", true)
 end
 
 -- Server rejects a grip the weapon has no class for, so nothing is checked here
@@ -1178,10 +1213,18 @@ local function teardownCharacter()
 
 	stopDash()
 	dashReadyAt = 0
-	if dashTrack then
-		dashTrack:Stop(FADE)
-		dashTrack:Destroy()
-		dashTrack = nil
+	dashClip = nil
+
+	for _, track in dashTracks do
+		track:Stop(FADE)
+		track:Destroy()
+	end
+	table.clear(dashTracks)
+
+	if dashCancelTrack then
+		dashCancelTrack:Stop(FADE)
+		dashCancelTrack:Destroy()
+		dashCancelTrack = nil
 	end
 	if dashForce then
 		-- Destroy the attachment, not the force: the force is its child
@@ -1232,12 +1275,17 @@ local function setupCharacter(character: Model)
 
 	-- Loaded per character, not per weapon: dashing, crouching and the uppercut all
 	-- work unarmed
-	if Config.dash.animation ~= "" then
-		local track = newAnimator:LoadAnimation(assetFor(Config.dash.animation))
+	for name, id in Config.dash.clips do
+		local track = newAnimator:LoadAnimation(assetFor(id))
 		track.Priority = REACTION_PRIORITY
 		track.Looped = false
-		dashTrack = track
+		dashTracks[name] = track
 	end
+
+	local cancel = newAnimator:LoadAnimation(assetFor(Config.dash.cancel))
+	cancel.Priority = REACTION_PRIORITY
+	cancel.Looped = false
+	dashCancelTrack = cancel
 
 	local crouchIdle = newAnimator:LoadAnimation(assetFor(Config.crouch.idle))
 	crouchIdle.Priority = LOCOMOTION_PRIORITY
@@ -1286,6 +1334,8 @@ function CombatController.Start()
 
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			swing()
+		elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+			cancelDash()
 		elseif input.KeyCode == HEAVY_KEY then
 			heavy()
 		elseif input.KeyCode == GRIP_KEY then

@@ -35,6 +35,11 @@ local parryFramesUntil: { [Player]: number } = {}
 -- after the last one still blocks, it just is not armed.
 local parryArmed: { [Player]: boolean } = {}
 local lastGuardPress: { [Player]: number } = {}
+
+-- Dash invulnerability. Consumed by the first hit it turns away, never a duration
+-- that eats a whole flurry — that would beat any guard for free.
+local dodgeUntil: { [Player]: number } = {}
+local lastDash: { [Player]: number } = {}
 local posture: { [Player]: number } = {}
 
 local WeaponService = {}
@@ -173,6 +178,28 @@ local function onGuardRequest(player: Player, holding: any)
 			lockParry(player)
 		end
 	end)
+end
+
+-- The client owns when a dash starts, so it says so. Nothing here trusts the timing
+-- beyond a cooldown: at worst a cheat buys itself the same window a legit dash gets.
+local function onDashReport(player: Player, cancelled: any)
+	local now = os.clock()
+	local spec = Config.dash
+
+	if cancelled == true then
+		-- Cancelling spends the dash for a longer read. It does not stack with the
+		-- window already running; the later deadline simply wins.
+		dodgeUntil[player] = math.max(dodgeUntil[player] or 0, now + spec.cancelIframes)
+		return
+	end
+
+	-- Held to the same cooldown the client obeys, so spamming the remote cannot buy
+	-- more invulnerability than dashing legitimately would
+	if now - (lastDash[player] or -math.huge) < spec.cooldown then
+		return
+	end
+	lastDash[player] = now
+	dodgeUntil[player] = now + spec.iframes
 end
 
 -- Right is the only side every class carries, so it is the fallback
@@ -331,6 +358,14 @@ function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, 
 		broadcastFx("hit", target.RootPart, defender)
 		silence(defender, Config.hitstun)
 		return "hit"
+	end
+
+	-- I-frames answer before anything else and are spent on contact. One dash turns
+	-- away one blow; the rest of the flurry lands.
+	if now < (dodgeUntil[victim] or 0) then
+		dodgeUntil[victim] = 0
+		broadcastFx("dodge", target.RootPart, defender)
+		return "dodged"
 	end
 
 	local held = guardStart[victim]
@@ -577,6 +612,7 @@ function WeaponService.Start()
 	Net.On("WeaponHit", onHitReport)
 	Net.On("SetGrip", onGripRequest)
 	Net.On("SetGuard", onGuardRequest)
+	Net.On("Dash", onDashReport)
 	Net.On("Swung", onSwungReport)
 	Net.On("Telegraph", onTelegraphReport)
 
@@ -602,6 +638,8 @@ function WeaponService.Start()
 		parryFramesUntil[player] = nil
 		parryArmed[player] = nil
 		lastGuardPress[player] = nil
+		dodgeUntil[player] = nil
+		lastDash[player] = nil
 		posture[player] = nil
 	end)
 
