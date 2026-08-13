@@ -246,7 +246,11 @@ local Weapons = {
 	guard = {
 		-- Window after pressing F where an incoming hit is parried outright.
 		-- Past it the same hold is an ordinary block.
-		parryWindow = 0.25,
+		--
+		-- Short on purpose: it has to be narrower than a swing's windup, or pressing F
+		-- the moment you SEE the animation start already covers the impact and the read
+		-- costs nothing. Keep it well under `hitAt`.
+		parryWindow = 0.16,
 		-- Pressing F with nothing to parry locks the parry out. Block stays free,
 		-- which is what makes panic-mashing F cost something.
 		parryWhiff = 1.5,
@@ -254,7 +258,12 @@ local Weapons = {
 		-- Granted BY a successful parry, and valid even after F is released. Landing
 		-- one buys the next: a single well-timed press can turn away a whole flurry,
 		-- and a lone attack no longer demands frame-perfect release.
-		parryFrames = 0.15,
+		parryFrames = 0.12,
+
+		-- Minimum gap between armed parry windows. Pressing F again sooner still
+		-- blocks, it just does not parry — otherwise mashing beats reading, since
+		-- every press would re-open a fresh window.
+		parryRearm = 0.7,
 		postureMax = 100,
 		-- Per second, always draining
 		postureDecay = 1,

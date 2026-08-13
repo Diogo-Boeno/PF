@@ -40,9 +40,14 @@ local LOCOMOTION_PRIORITY = Enum.AnimationPriority.Action
 -- can be visually diluted mid-frame is a swing the opponent cannot read reliably.
 local SWING_PRIORITY = Enum.AnimationPriority.Action4
 
--- Reactions ride over a held block. They never fight a swing, because anything that
+-- Reactions ride over a held block and never fight a swing, because anything that
 -- triggers one has already cancelled the swing outright.
 local REACTION_PRIORITY = Enum.AnimationPriority.Action3
+
+-- Below reactions, deliberately. A held block is a sustained pose, so sharing the
+-- attack's priority let it swallow both the ParryStart flourish and the parry impact —
+-- the two animations that most need to be seen.
+local BLOCK_PRIORITY = Enum.AnimationPriority.Action2
 
 type Kind = "swing" | "flourish" | "heavy" | "aerial" | "parried" | "uppercut"
 
@@ -854,7 +859,7 @@ local function loadTracks(weaponId: number)
 	-- Guard tracks carry no hitbox markers, so they skip buildTrack entirely
 	if class.block then
 		local block = target:LoadAnimation(assetFor(class.block))
-		block.Priority = SWING_PRIORITY
+		block.Priority = BLOCK_PRIORITY
 		block.Looped = true
 		blockTrack = block
 	end

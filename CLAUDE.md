@@ -277,10 +277,22 @@ chave**, herdando o resto da classe.
 
 `CombatController` toca só para o dono — `Animator` replica pro resto de graça.
 
-Prioridades: locomoção em `Action`, reação em `Action3`, **ataque em `Action4`, o topo**.
-Ataque nunca é sobreposto por nada: o jogo é competitivo, e swing que pode ser diluído
-no meio do frame é swing que o oponente não lê com confiança. Reação nunca disputa com
-ataque porque tudo que dispara uma já cancelou o ataque antes.
+Prioridades, de baixo pra cima:
+
+| | prioridade | |
+|---|---|---|
+| locomoção | `Action` | idle, walk, crouch |
+| **block** | `Action2` | pose sustentada |
+| reação | `Action3` | ParryStart, impacto, parried |
+| **ataque** | `Action4` | topo |
+
+Ataque nunca é sobreposto: o jogo é competitivo, e swing diluído no meio do frame é
+swing que o oponente não lê com confiança. Reação nunca disputa com ataque porque tudo
+que dispara uma já cancelou o ataque antes.
+
+**Block tem prioridade própria, e isso não é detalhe.** Ele já compartilhou a do ataque,
+e como é uma pose sustentada acabou engolindo o ParryStart e o impacto — justo as duas
+animações que mais precisam ser vistas.
 
 Nada disso dispensa calar a locomoção durante o golpe — prioridade só decide quem ganha
 nas juntas que **ambas** animam.
@@ -391,6 +403,16 @@ consequências, e as duas são o design:
   pela animação inteira nem esperar o golpe passar
 
 Soltar depois que a guarda virou block **não** paga nada: ali a leitura já falhou.
+
+Três travas mantêm isso uma leitura e não um mash:
+
+- **`parryWindow` menor que o windup.** Se a janela cobrisse `hitAt`, apertar `F` ao
+  *ver* a animação começar já garantiria o parry, e a leitura não custaria nada. Ela
+  precisa ficar bem abaixo do `hitAt` da classe.
+- **`parryRearm`** — soltar e reapertar não reabre a janela. A guarda ainda bloqueia,
+  só não fica armada (`parryArmed`). Sem isso, martelar `F` rendia mais que ler.
+- **Frames não são concedidos em whiff.** Antes eram, e taps alternados produziam
+  frames quase contínuos com a punição nunca alcançando.
 
 É por isso que `resolveHit` avalia parry **antes** de olhar se há guarda — frames valem
 com a tecla solta, então guarda não pode ser pré-requisito.

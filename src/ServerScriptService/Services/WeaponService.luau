@@ -30,6 +30,11 @@ local whiffUntil: { [Player]: number } = {}
 -- Earned by landing a parry. Valid with F already released, which is what turns one
 -- press into a chain instead of one refusal.
 local parryFramesUntil: { [Player]: number } = {}
+
+-- Guarding and being able to parry are different states. A hold that came too soon
+-- after the last one still blocks, it just is not armed.
+local parryArmed: { [Player]: boolean } = {}
+local lastGuardPress: { [Player]: number } = {}
 local posture: { [Player]: number } = {}
 
 local WeaponService = {}
@@ -133,11 +138,14 @@ local function onGuardRequest(player: Player, holding: any)
 		guardStart[player] = nil
 
 		-- Released while still inside the parry window — never once it has settled into
-		-- a block. The frames carry the read past the release, so seeing a swing coming
-		-- and tapping F is enough: no holding through the animation, and the defender
-		-- is free to attack immediately instead of waiting the swing out.
-		if held and os.clock() - held <= Guard.parryWindow then
-			parryFramesUntil[player] = os.clock() + Guard.parryFrames
+		-- a block. The frames carry the read past the release, so tapping F on a swing
+		-- you saw coming is enough, and the defender may attack straight after.
+		--
+		-- Locked out earns nothing: without this, alternating taps produced near
+		-- continuous frames and the whiff penalty never caught up.
+		local now = os.clock()
+		if held and parryArmed[player] and now - held <= Guard.parryWindow and now >= (whiffUntil[player] or 0) then
+			parryFramesUntil[player] = now + Guard.parryFrames
 		end
 		return
 	end
@@ -149,8 +157,13 @@ local function onGuardRequest(player: Player, holding: any)
 	local now = os.clock()
 	guardStart[player] = now
 
-	-- Already locked out, so this hold is a plain block and must not re-arm anything
-	if now < (whiffUntil[player] or 0) then
+	-- Mashing does not re-open the window. The hold still blocks; it just cannot parry.
+	local armed = now - (lastGuardPress[player] or -math.huge) >= Guard.parryRearm
+	lastGuardPress[player] = now
+	parryArmed[player] = armed
+
+	-- Already locked out, or not armed: a plain block, and nothing to schedule
+	if not armed or now < (whiffUntil[player] or 0) then
 		return
 	end
 
@@ -326,7 +339,10 @@ function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, 
 	--   window — pressed F recently enough, the deliberate read
 	--   frames — earned by the previous parry, and valid with F already released
 	-- Chaining is what lets one well-timed press turn away a flurry.
-	local inWindow = held ~= nil and now - held <= Guard.parryWindow and now >= (whiffUntil[victim] or 0)
+	local inWindow = held ~= nil
+		and parryArmed[victim] == true
+		and now - held <= Guard.parryWindow
+		and now >= (whiffUntil[victim] or 0)
 	local inFrames = now < (parryFramesUntil[victim] or 0)
 
 	if not inWindow and not inFrames then
@@ -584,6 +600,8 @@ function WeaponService.Start()
 		parriedAt[player] = nil
 		whiffUntil[player] = nil
 		parryFramesUntil[player] = nil
+		parryArmed[player] = nil
+		lastGuardPress[player] = nil
 		posture[player] = nil
 	end)
 
