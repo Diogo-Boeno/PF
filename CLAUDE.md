@@ -163,6 +163,25 @@ Cap em **30**, com um desafio no **20** que destrava o resto. Nível e ponto de 
 são contas separadas: a curva do Santuário abaixo governa pontos dentro de **um**
 atributo, não o nível do personagem.
 
+### Vida
+
+**Vida não é `Humanoid.Health`.** `HealthService` guarda tudo em atributos do character
+(`Health`, `MaxHealth`, `Defeated`) e o Humanoid é fixado em `1e6` com
+`BreakJointsOnDeath = false`.
+
+Dois motivos: a morte da Roblox desmonta o rig em peças, e aqui um personagem nunca se
+despedaça — ele é **finalizado**, o corpo fica inteiro no chão. E possuir o número é o
+que deixa armadura, resistência e execução serem nossas de definir em vez de brigar
+contra a engine.
+
+Nada usa `Humanoid.Died` nem `TakeDamage`. Derrota é o sinal `HealthService.Defeated`, e
+"está vivo?" é `isDefeated`, nunca `Health > 0` — a vida do Humanoid não significa mais
+nada. **HUD que ler `Humanoid.Health` fica cheia pra sempre**; a fonte é o atributo.
+
+Os nomes moram em `data/shared/Weapons.luau`, junto de `posture` e `stun` — são todos
+vitais de combate, e o client precisa exatamente das mesmas strings. `Progression` cuida
+de linhagem e atributos, não disso.
+
 ### Vidas, morte e Lembranças
 
 Duas vidas úteis moram num perfil só:
@@ -273,6 +292,10 @@ medir do início faria o próprio encadeamento parecer ociosidade e resetar o co
 M1, endlag não esfria o aerial, aerial não esfria o heavy. `chainReadyAt`,
 `heavyReadyAt` e `aerialReadyAt` existem separados porque uma variável só compartilhada
 era exatamente o que fazia um vazar no outro.
+
+**M1 no ar toca o Aerial enquanto ele estiver disponível; com ele em cooldown, cai na
+corrente normal.** O aerial tem prioridade, não exclusividade — não fazer nada ali lê
+como input engolido.
 
 Duas travas são globais de propósito:
 

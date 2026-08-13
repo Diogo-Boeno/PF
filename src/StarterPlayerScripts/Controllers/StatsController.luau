@@ -24,7 +24,7 @@ type Bar = {
 local player = Players.LocalPlayer
 
 local bars: { [string]: Bar } = {}
-local humanoid: Humanoid? = nil
+local tracked: Model? = nil
 local connections: { RBXScriptConnection } = {}
 
 local StatsController = {}
@@ -55,13 +55,19 @@ local function setFraction(name: string, fraction: number, animate: boolean)
 	tween:Play()
 end
 
+-- Reads the character attributes, never Humanoid.Health: that one is pinned at 1e6
+-- so the engine can never kill anyone, and would leave this bar permanently full
 local function refreshHealth()
-	local living = humanoid
-	if not living then
+	local character = tracked
+	if not character then
 		return
 	end
-	local max = living.MaxHealth
-	setFraction("Health", if max > 0 then living.Health / max else 0, true)
+
+	local value = character:GetAttribute(Config.healthAttribute)
+	local max = character:GetAttribute(Config.maxHealthAttribute)
+	local ratio = if type(value) == "number" and type(max) == "number" and max > 0 then value / max else 0
+
+	setFraction("Health", ratio, true)
 end
 
 local function refreshPosture()
@@ -77,20 +83,24 @@ local function teardownCharacter()
 		connection:Disconnect()
 	end
 	table.clear(connections)
-	humanoid = nil
+	tracked = nil
 end
 
 local function setupCharacter(character: Model)
 	teardownCharacter()
 
-	local newHumanoid = character:WaitForChild("Humanoid") :: Humanoid
+	-- HealthService writes these right after the Humanoid exists, so wait for the
+	-- attribute rather than the instance or the first read lands on nil
+	if not character:WaitForChild("Humanoid", 10) then
+		return
+	end
 	if player.Character ~= character then
 		return
 	end
-	humanoid = newHumanoid
+	tracked = character
 
-	table.insert(connections, newHumanoid.HealthChanged:Connect(refreshHealth))
-	table.insert(connections, newHumanoid:GetPropertyChangedSignal("MaxHealth"):Connect(refreshHealth))
+	table.insert(connections, character:GetAttributeChangedSignal(Config.healthAttribute):Connect(refreshHealth))
+	table.insert(connections, character:GetAttributeChangedSignal(Config.maxHealthAttribute):Connect(refreshHealth))
 
 	refreshHealth()
 end

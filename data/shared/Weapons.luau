@@ -174,6 +174,12 @@ local Weapons = {
 	stunAttribute = "Stunned",
 	parryLockAttribute = "ParryLocked",
 
+	-- On the character, not the Player: NPCs carry these too, and they die with the rig
+	healthAttribute = "Health",
+	maxHealthAttribute = "MaxHealth",
+	defeatedAttribute = "Defeated",
+	defaultMaxHealth = 100,
+
 	guard = {
 		-- Window after pressing F where an incoming hit is parried outright.
 		-- Past it the same hold is an ordinary block.

@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Net = require(ReplicatedStorage.Shared.Framework.Net)
 local DataService = require(script.Parent.DataService)
+local HealthService = require(script.Parent.HealthService)
 
 local RESPAWN_DELAY = 3
 
@@ -19,15 +20,20 @@ local function spawnIfAlive(player: Player)
 	end
 end
 
-local function onDied(player: Player)
-	local remaining = DataService.loseLife(player)
+local function onDefeated(character: Model)
+	local player = Players:GetPlayerFromCharacter(character)
+	if not player then
+		return
+	end
 
+	local remaining = DataService.loseLife(player)
 	if remaining <= 0 then
 		-- Lineage is gone; the client sees Lives hit 0 and asks for a new character
 		Net.FireClient("LineageEnded", player)
 		return
 	end
 
+	-- The body stays whole on the ground until it is replaced
 	task.delay(RESPAWN_DELAY, function()
 		if player.Parent == Players then
 			spawnIfAlive(player)
@@ -35,17 +41,13 @@ local function onDied(player: Player)
 	end)
 end
 
-local function watchCharacter(player: Player, character: Model)
-	local humanoid = character:WaitForChild("Humanoid", 10) :: Humanoid?
-	if not humanoid then
+-- Humanoid.Died is never used: HealthService owns defeat, and the engine's health is
+-- pinned so high it can never fire on its own
+local function watchCharacter(character: Model)
+	if not character:WaitForChild("Humanoid", 10) then
 		return
 	end
-
-	local connection
-	connection = humanoid.Died:Connect(function()
-		connection:Disconnect()
-		onDied(player)
-	end)
+	HealthService.setup(character)
 end
 
 local function onCreateRequest(player: Player, origin: any)
@@ -64,10 +66,10 @@ function LifeService.Start()
 	Net.On("CreateLineage", onCreateRequest)
 	Net.Register("LineageEnded")
 
+	HealthService.Defeated:Connect(onDefeated)
+
 	Players.PlayerAdded:Connect(function(player)
-		player.CharacterAdded:Connect(function(character)
-			watchCharacter(player, character)
-		end)
+		player.CharacterAdded:Connect(watchCharacter)
 
 		-- DataService loads the profile in its own thread; wait for it rather than
 		-- racing it, or the first spawn silently never happens

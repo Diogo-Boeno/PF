@@ -12,6 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Data.Weapons)
 local Tags = require(ReplicatedStorage.Shared.Framework.Tags)
 local WeaponService = require(script.Parent.WeaponService)
+local HealthService = require(script.Parent.HealthService)
 
 local TAG = "CombatNpc"
 
@@ -108,7 +109,8 @@ local function strike(npc: Npc, damage: number)
 	for _, part in workspace:GetPartBoundsInBox(origin, HIT_SIZE, params) do
 		local parent = part.Parent
 		local hit = parent and parent:FindFirstChildOfClass("Humanoid")
-		if hit and hit ~= npc.humanoid and not seen[hit] and hit.Health > 0 then
+		local hurtable = parent and parent:IsA("Model") and not HealthService.isDefeated(parent)
+		if hit and hurtable and hit ~= npc.humanoid and not seen[hit] then
 			seen[hit] = true
 
 			-- `nil` attacker: nobody owns this swing, so no posture changes hands.
@@ -179,7 +181,7 @@ local function think(npc: Npc)
 	while npc.alive and npc.model.Parent do
 		task.wait(THINK_INTERVAL)
 
-		if npc.humanoid.Health <= 0 then
+		if HealthService.isDefeated(npc.model) then
 			break
 		end
 
@@ -227,6 +229,7 @@ local function bind(model: Instance)
 		alive = true,
 	}
 
+	HealthService.setup(model)
 	armWeapon(npc)
 	loadSwings(npc)
 	task.spawn(think, npc)

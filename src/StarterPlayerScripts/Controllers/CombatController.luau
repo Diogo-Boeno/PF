@@ -189,12 +189,17 @@ local function setAttackLock(on: boolean)
 	end
 end
 
+-- The library strips the metatable when it finally drops a hitbox (HitboxCaster:237),
+-- so a stale reference is a plain table with no methods left. Clearing ours first
+-- means a throw can never strand it, and the type check covers the already-stripped case.
 local function releaseHitbox()
-	if hitbox then
-		hitbox:Destroy()
-		hitbox = nil
-	end
+	local stale = hitbox
+	hitbox = nil
 	hitboxModel = nil
+
+	if stale and type(stale.Destroy) == "function" then
+		stale:Destroy()
+	end
 end
 
 local function ensureHitbox(): any?
@@ -359,7 +364,8 @@ end
 
 local function stopHitbox()
 	stopSweep()
-	if hitbox then
+	-- Same stripped-metatable case as releaseHitbox: a dropped hitbox keeps no methods
+	if hitbox and type(hitbox.HitStop) == "function" then
 		hitbox:HitStop()
 	end
 end
@@ -761,12 +767,11 @@ local function swing()
 		return
 	end
 
-	if airborne() then
-		-- The aerial replaces M1 outright and takes no buffering. It answers only to
-		-- its own cooldown, so the ground chain's endlag never grounds it.
-		if not current and aerialTrack and now >= aerialReadyAt then
-			playAerial()
-		end
+	-- The aerial outranks M1 while it is off cooldown, and takes no buffering. Once it
+	-- is spent the chain answers in the air too: the alternative is M1 doing nothing
+	-- mid-air, which reads as the input being dropped.
+	if airborne() and aerialTrack and not current and now >= aerialReadyAt then
+		playAerial()
 		return
 	end
 

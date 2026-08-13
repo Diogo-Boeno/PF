@@ -7,6 +7,7 @@ local RunService = game:GetService("RunService")
 
 local Net = require(ReplicatedStorage.Shared.Framework.Net)
 local Config = require(ReplicatedStorage.Data.Weapons)
+local HealthService = require(script.Parent.HealthService)
 
 local Guard = Config.guard
 
@@ -31,6 +32,15 @@ local WeaponService = {}
 
 local function stunned(player: Player): boolean
 	return player:GetAttribute(Config.stunAttribute) == true
+end
+
+-- Damage never touches Humanoid.Health: the engine's version kills by tearing the rig
+-- apart, and health is ours to own. HealthService takes the character, not the humanoid.
+local function hurt(target: Humanoid, amount: number)
+	local character = target.Parent
+	if character and character:IsA("Model") then
+		HealthService.damage(character, amount)
+	end
 end
 
 -- Presentation is decided where the outcome is decided, so no client has to guess
@@ -238,7 +248,7 @@ function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, 
 	local victim = Players:GetPlayerFromCharacter(target.Parent)
 	local held = if victim then guardStart[victim] else nil
 	if not victim or not held then
-		target:TakeDamage(damage)
+		hurt(target, damage)
 		broadcastFx("hit", target.RootPart)
 
 		-- Only a clean hit staggers. Blocking or parrying is the reward for defending,
@@ -321,7 +331,13 @@ end
 -- The client detects; the server decides. Nothing here trusts the report itself,
 -- only that the attacker could plausibly have made it.
 local function onHitReport(player: Player, target: any, kind: any)
-	if typeof(target) ~= "Instance" or not target:IsA("Humanoid") or target.Health <= 0 then
+	if typeof(target) ~= "Instance" or not target:IsA("Humanoid") then
+		return
+	end
+
+	-- Humanoid.Health is pinned high and means nothing now; defeat is our attribute
+	local targetCharacter = target.Parent
+	if not targetCharacter or not targetCharacter:IsA("Model") or HealthService.isDefeated(targetCharacter) then
 		return
 	end
 
@@ -341,7 +357,7 @@ local function onHitReport(player: Player, target: any, kind: any)
 	end
 
 	local attacker = character:FindFirstChildOfClass("Humanoid")
-	if not attacker or attacker == target or attacker.Health <= 0 then
+	if not attacker or attacker == target or HealthService.isDefeated(character) then
 		return
 	end
 
