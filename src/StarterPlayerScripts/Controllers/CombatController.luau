@@ -133,6 +133,11 @@ local dashReadyAt = 0
 -- dash cannot start during one either. The two are never simultaneous.
 local dashUntil = 0
 
+-- Cancelling refunds the dash, once. `fromRefund` marks the dash that spent it, and
+-- that one earns nothing back — otherwise cancel-dash-cancel is free movement forever.
+local refundAvailable = false
+local fromRefund = false
+
 -- The one lock that is meant to stop everything: being parried is a stagger
 local staggerUntil = 0
 
@@ -1002,6 +1007,10 @@ local function dash()
 	local steer = living.MoveDirection
 	local direction = if steer.Magnitude > 0 then steer.Unit else root.CFrame.LookVector
 
+	-- A dash bought with a refund cannot buy another; a fresh one arms the refund
+	refundAvailable = not fromRefund
+	fromRefund = false
+
 	-- Same key, different move: a ground burst versus an airborne glide
 	local spec = if airborne() then Config.dash.air else Config.dash.ground
 	dashReadyAt = now + Config.dash.cooldown
@@ -1043,6 +1052,14 @@ local function cancelDash()
 	end
 	if dashCancelTrack then
 		dashCancelTrack:Play(FADE)
+	end
+
+	-- One refund per chain. The dash it pays for is marked so cancelling THAT one
+	-- gives nothing back, which is what stops cancel-dash-cancel from being free.
+	if refundAvailable then
+		refundAvailable = false
+		fromRefund = true
+		dashReadyAt = 0
 	end
 
 	Net.FireServer("Dash", true)
@@ -1214,6 +1231,8 @@ local function teardownCharacter()
 	stopDash()
 	dashReadyAt = 0
 	dashClip = nil
+	refundAvailable = false
+	fromRefund = false
 
 	for _, track in dashTracks do
 		track:Stop(FADE)

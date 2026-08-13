@@ -397,6 +397,13 @@ que aguentasse uma rajada seria estritamente melhor que qualquer guarda.
 os i-frames são estendidos (`cancelIframes`) — mesma ideia dos parry frames, gastar o
 recurso compra uma leitura mais longa. **Continua sendo um golpe só.**
 
+Cancelar também **devolve o dash**, uma vez por corrente. O dash pago pelo refund é
+marcado (`fromRefund`) e cancelá-lo não devolve nada — sem isso,
+cancel → dash → cancel seria mobilidade infinita sem nunca tocar no cooldown.
+
+O server espelha esse refund, porque senão recusaria o segundo dash pelo próprio
+cooldown e o jogador ficaria sem i-frames justamente na janela que acabou de comprar.
+
 O server é dono da janela; o client só reporta que dashou, e o report obedece ao mesmo
 `cooldown` que o client obedece — spammar o remote não compra mais invulnerabilidade do
 que dashar de verdade.

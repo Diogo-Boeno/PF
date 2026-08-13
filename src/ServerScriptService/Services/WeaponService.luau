@@ -40,6 +40,7 @@ local lastGuardPress: { [Player]: number } = {}
 -- that eats a whole flurry — that would beat any guard for free.
 local dodgeUntil: { [Player]: number } = {}
 local lastDash: { [Player]: number } = {}
+local dashRefund: { [Player]: boolean } = {}
 local posture: { [Player]: number } = {}
 
 local WeaponService = {}
@@ -190,14 +191,22 @@ local function onDashReport(player: Player, cancelled: any)
 		-- Cancelling spends the dash for a longer read. It does not stack with the
 		-- window already running; the later deadline simply wins.
 		dodgeUntil[player] = math.max(dodgeUntil[player] or 0, now + spec.cancelIframes)
+
+		-- Mirrors the client's refund. Only one is ever outstanding, so this cannot
+		-- become an unlimited pass through the cooldown.
+		dashRefund[player] = true
 		return
 	end
 
 	-- Held to the same cooldown the client obeys, so spamming the remote cannot buy
-	-- more invulnerability than dashing legitimately would
-	if now - (lastDash[player] or -math.huge) < spec.cooldown then
+	-- more invulnerability than dashing legitimately would. A refund is the one
+	-- sanctioned way past it.
+	if dashRefund[player] then
+		dashRefund[player] = nil
+	elseif now - (lastDash[player] or -math.huge) < spec.cooldown then
 		return
 	end
+
 	lastDash[player] = now
 	dodgeUntil[player] = now + spec.iframes
 end
@@ -640,6 +649,7 @@ function WeaponService.Start()
 		lastGuardPress[player] = nil
 		dodgeUntil[player] = nil
 		lastDash[player] = nil
+		dashRefund[player] = nil
 		posture[player] = nil
 	end)
 
