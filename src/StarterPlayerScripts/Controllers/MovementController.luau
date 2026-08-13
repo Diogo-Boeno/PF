@@ -122,6 +122,19 @@ local function setupCharacter(character: Model)
 		end)
 	)
 
+	-- Standing still is what ends a run, not releasing W. Turning mid-run means the
+	-- forward key comes up for a moment, and dropping the sprint there feels broken.
+	table.insert(
+		connections,
+		newHumanoid:GetPropertyChangedSignal("MoveDirection"):Connect(function()
+			if sprintHeld and newHumanoid.MoveDirection.Magnitude == 0 then
+				sprintHeld = false
+				applyWalkSpeed()
+				evaluateSprint()
+			end
+		end)
+	)
+
 	table.insert(
 		connections,
 		newHumanoid.StateChanged:Connect(function(_old: Enum.HumanoidStateType, new: Enum.HumanoidStateType)
@@ -154,18 +167,8 @@ function MovementController.Start()
 		lastTap = now
 	end)
 
-	UserInputService.InputEnded:Connect(function(input: InputObject)
-		if input.KeyCode ~= SPRINT_KEY then
-			return
-		end
-
-		-- Releasing forward ends the run, so it never outlives the input holding it
-		if sprintHeld then
-			sprintHeld = false
-			applyWalkSpeed()
-			evaluateSprint()
-		end
-	end)
+	-- Nothing on release: the run ends when MoveDirection goes to zero, so it survives
+	-- strafing and turning. Releasing W while still steering is not stopping.
 
 	player.CharacterAdded:Connect(setupCharacter)
 	player.CharacterRemoving:Connect(teardownCharacter)

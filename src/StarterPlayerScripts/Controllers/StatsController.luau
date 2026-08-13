@@ -55,6 +55,32 @@ local function setFraction(name: string, fraction: number, animate: boolean)
 	tween:Play()
 end
 
+-- Every ScreenGui in the folder registers itself, so a bar with no data source yet
+-- still gets picked up the day something feeds it
+local function collectBars()
+	local gui = player:WaitForChild("PlayerGui")
+	local folder = gui:WaitForChild(FOLDER_NAME, FIND_TIMEOUT)
+	if not folder then
+		warn(`[StatsController] PlayerGui has no {FOLDER_NAME}`)
+		return
+	end
+
+	table.clear(bars)
+
+	for _, screen in folder:GetChildren() do
+		if not screen:IsA("ScreenGui") then
+			continue
+		end
+
+		local fill = screen:FindFirstChild(FILL_NAME)
+		if fill and fill:IsA("Frame") then
+			bars[screen.Name] = { fill = fill, full = fill.Size }
+		else
+			warn(`[StatsController] {screen.Name} has no {FILL_NAME}`)
+		end
+	end
+end
+
 -- Reads the character attributes, never Humanoid.Health: that one is pinned at 1e6
 -- so the engine can never kill anyone, and would leave this bar permanently full
 local function refreshHealth()
@@ -99,34 +125,16 @@ local function setupCharacter(character: Model)
 	end
 	tracked = character
 
+	-- Re-collected every spawn: a ScreenGui left on ResetOnSpawn is rebuilt on respawn,
+	-- and the cached Fill frames would then point at destroyed instances. That is why
+	-- the bar froze after the first death.
+	collectBars()
+
 	table.insert(connections, character:GetAttributeChangedSignal(Config.healthAttribute):Connect(refreshHealth))
 	table.insert(connections, character:GetAttributeChangedSignal(Config.maxHealthAttribute):Connect(refreshHealth))
 
 	refreshHealth()
-end
-
--- Every ScreenGui in the folder registers itself, so a bar with no data source yet
--- still gets picked up the day something feeds it
-local function collectBars()
-	local gui = player:WaitForChild("PlayerGui")
-	local folder = gui:WaitForChild(FOLDER_NAME, FIND_TIMEOUT)
-	if not folder then
-		warn(`[StatsController] PlayerGui has no {FOLDER_NAME}`)
-		return
-	end
-
-	for _, screen in folder:GetChildren() do
-		if not screen:IsA("ScreenGui") then
-			continue
-		end
-
-		local fill = screen:FindFirstChild(FILL_NAME)
-		if fill and fill:IsA("Frame") then
-			bars[screen.Name] = { fill = fill, full = fill.Size }
-		else
-			warn(`[StatsController] {screen.Name} has no {FILL_NAME}`)
-		end
-	end
+	refreshPosture()
 end
 
 function StatsController.Start()

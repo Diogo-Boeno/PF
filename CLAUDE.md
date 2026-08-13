@@ -275,12 +275,22 @@ swing autorado uma vez serve todas as armas da classe. **Classe é grip + tamanh
 Arma que precisa de um golpe próprio põe `animations` na entrada e sobrescreve **por
 chave**, herdando o resto da classe.
 
-`CombatController` toca só para o dono — `Animator` replica pro resto de graça. Idle e
-walk saem em `Action` e o swing em `Action2`, os dois acima do `Core` que o
-`Animate.client` toca; é assim que o walk não come o golpe no meio.
+`CombatController` toca só para o dono — `Animator` replica pro resto de graça.
+
+Prioridades: locomoção em `Action`, reação em `Action3`, **ataque em `Action4`, o topo**.
+Ataque nunca é sobreposto por nada: o jogo é competitivo, e swing que pode ser diluído
+no meio do frame é swing que o oponente não lê com confiança. Reação nunca disputa com
+ataque porque tudo que dispara uma já cancelou o ataque antes.
+
+Nada disso dispensa calar a locomoção durante o golpe — prioridade só decide quem ganha
+nas juntas que **ambas** animam.
 
 Locomoção lê `Humanoid.MoveDirection`, não `Running`: é input, então não tem drift
 residual pra comparar contra threshold.
+
+Correr é `W` duplo, e **só acaba quando `MoveDirection` zera** — não ao soltar `W`.
+Virar no meio da corrida solta a tecla por um instante, e cair pra caminhada ali é o
+tipo de coisa que parece bug mesmo estando "correta".
 
 O combo é M1 e **swing nunca é cortado**. Clique com um swing tocando não toca nada na
 hora: se caiu na cauda (`comboBuffer`) fica agendado e dispara quando o atual termina,
@@ -339,6 +349,20 @@ Toda animação de ataque carrega dois **Animation Events**, `Start` e `End`, e 
 que abrem e fecham a hitbox. A janela ativa é dado da animação, não número no código —
 golpe que erra o timing se corrige no editor, nunca no controller.
 
+Um terceiro evento é opcional: **`Tell`**, onde a lâmina acende avisando que apertar `F`
+agora resulta em parry. O aviso precisa vir *antes* da hitbox abrir, porque a janela
+conta do aperto do defensor.
+
+Sem `Tell` autorado, o aviso sai de **`hitAt`** na classe: quantos segundos do início da
+animação até o `Start`, lido na régua do editor. O tell dispara `parryWindow` antes
+disso. Marker autorado sempre ganha do `hitAt`.
+
+**Isso é dado, e tem que ser.** Três tentativas de inferir em runtime falharam e não
+devem ser repetidas: track em `weight 0` **não dispara markers**, não existe API pra
+perguntar a uma animação onde estão seus eventos, e aprender no primeiro golpe deixa
+justamente esse golpe sem aviso. Um número por moveset resolve o que nenhuma inferência
+resolveu.
+
 ### Dano
 
 **O client detecta, o server decide.** Não é preferência: o server não tem a arma
@@ -388,6 +412,9 @@ Ataque que termina sem a hitbox ter aberto emite warn nomeando o `Start` — qua
 é o Animation Event que não foi autorado naquela animação, e sem esse aviso não se
 distingue de hitbox que abriu e errou.
 
+Golpe **cancelado** não emite esse warn (`cancelled`): interrompido, ele legitimamente
+nunca chega no marker, e avisar ali afogaria o caso real em ruído de stagger.
+
 `WeaponService` não confia no report, só verifica que o atacante **poderia** tê-lo feito:
 arma equipada de verdade, os dois vivos, alvo ≠ atacante, distância dentro de
 `maxHitDistance` e cooldown por par atacante/alvo. Só então `TakeDamage`. O cooldown é
@@ -434,6 +461,57 @@ outros via `Swung`. É o único Fx que um client pode pedir, então o conjunto �
 (`Config.swingFx`) e tem rate limit.
 
 Lista de som sorteia entre variantes, senão golpe repetido vira metrônomo.
+
+#### Como declarar um efeito
+
+Tudo em `data/shared/Fx.luau`, chaveado pelo **nome do evento** (`swing`, `heavy`,
+`aerial`, `flourish`, `dash`, `hit`, `blocked`, `parry`, `guardBreak`).
+
+```lua
+sound = { heavy = { "HeavySwing1" } },              -- sorteia da lista
+
+effect = {
+    parry = "ParryEffect",                                        -- no ponto do evento
+    heavy = { name = "WindBurst", offset = Vector3.new(0,-3,0) }, -- deslocado, espaço local
+    hit   = { name = "Sparks", on = "blade" },                    -- nos DmgPoint da arma
+},
+
+highlight = { heavy = { color = ..., duration = 0.35 } },
+```
+
+**`on`** escolhe a origem: `"blade"` emite em **todo** `DmgPoint` do subject, `"tip"` só
+no mais distante do root da arma. Ponta é geometria, não pose — continua sendo a ponta
+qualquer que seja o movimento no instante. Use `offset` quando o efeito pertence ao
+corpo (pé, mão, costas) e não ao fio.
+
+Efeito preso à lâmina clona **os ParticleEmitters** dentro do `DmgPoint`, nunca o
+Attachment do template: Attachment não pode ser filho de Attachment. Efeito no mundo é o
+contrário — clona o Attachment inteiro no Terrain, que é BasePart e aceita.
+
+**`mode` decide se o efeito é evento ou estado**, e a diferença não é cosmética:
+
+| mode | o quê | pra quê |
+|---|---|---|
+| `burst` *(default)* | um `Emit`, partículas voam livres | impacto — aconteceu e acabou |
+| `sustain` | `Enabled` por `duration` | aviso, estado, aura |
+
+**Partícula emitida não acompanha o emitter.** Ela é independente no instante em que
+existe. Então efeito que precisa *seguir* a lâmina tem que ser `sustain`: o que segue
+não são as partículas, é o nascimento delas, que continua acontecendo onde a ponta
+estiver. Nenhum ajuste de parenting substitui isso.
+
+Texturas e sons são pré-carregados no boot por **string de conteúdo**, não pela pasta:
+`PreloadAsync` não resolve a `Texture` de um `ParticleEmitter` a partir do container.
+Sem isso o primeiro burst dispara o carregamento e não desenha nada — o sintoma é "o
+primeiro combo não mostra VFX nenhum".
+
+Asset no place file: `ReplicatedStorage/VFX/<Nome>` como Part → Attachment →
+ParticleEmitter. Só o Attachment é clonado.
+
+**Highlight é telegraph**: dispara no primeiro frame do windup, não quando a hitbox
+abre. Tell que chega junto com a lâmina não é tell. Branco para todos, estilo Sekiro —
+a leitura tem que ser instantânea e igual em todo golpe, nunca confundida com cor de
+elemento ou status.
 
 ### NPC de combate
 

@@ -16,7 +16,7 @@ local STARTER_SLOT = "1"
 local STARTER_WEAPON = 1
 
 local lastRequest: { [Player]: number } = {}
-local lastSwingFx: { [Player]: number } = {}
+local lastSwingFx: { [Player]: { [string]: number } } = {}
 
 -- Weak keys so a dead target's entry goes away without a sweep
 local WEAK_KEYS = { __mode = "k" }
@@ -44,10 +44,13 @@ local function hurt(target: Humanoid, amount: number)
 end
 
 -- Presentation is decided where the outcome is decided, so no client has to guess
--- whether its own swing landed, was blocked or got parried
-local function broadcastFx(event: string, at: BasePart?)
+-- whether its own swing landed, was blocked or got parried.
+--
+-- `subject` is whoever the outcome happened TO — the defender. Effects declared with
+-- `on = "blade"` need it to find the weapon the sparks come off.
+local function broadcastFx(event: string, at: BasePart?, subject: Model?)
 	if at then
-		Net.FireAllClients("Fx", event, at.Position)
+		Net.FireAllClients("Fx", event, at.Position, subject)
 	end
 end
 
@@ -70,7 +73,7 @@ local function breakGuard(player: Player)
 
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	broadcastFx("guardBreak", if humanoid then humanoid.RootPart else nil)
+	broadcastFx("guardBreak", if humanoid then humanoid.RootPart else nil, character)
 
 	task.delay(Guard.stunTime, function()
 		if player.Parent then
@@ -189,11 +192,19 @@ local function onSwungReport(player: Player, event: any)
 		return
 	end
 
+	-- Per event, not per player: the Tell fires just before the swing's own Start, and
+	-- a shared cooldown would silently drop whichever came second
+	local seen = lastSwingFx[player]
+	if not seen then
+		seen = {}
+		lastSwingFx[player] = seen
+	end
+
 	local now = os.clock()
-	if now - (lastSwingFx[player] or 0) < Config.swingFxCooldown then
+	if now - (seen[event] or 0) < Config.swingFxCooldown then
 		return
 	end
-	lastSwingFx[player] = now
+	seen[event] = now
 
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
@@ -204,6 +215,25 @@ local function onSwungReport(player: Player, event: any)
 	for _, other in Players:GetPlayers() do
 		if other ~= player then
 			Net.FireClient("Fx", other, event, root.Position, character)
+		end
+	end
+end
+
+-- Telegraph is the windup tell. Same closed set and same rate limit as Swung, because
+-- it is the other Fx a client is allowed to ask for.
+local function onTelegraphReport(player: Player, event: any)
+	if type(event) ~= "string" or Config.swingFx[event] ~= true then
+		return
+	end
+
+	local character = player.Character
+	if not character then
+		return
+	end
+
+	for _, other in Players:GetPlayers() do
+		if other ~= player then
+			Net.FireClient("Telegraph", other, event, character)
 		end
 	end
 end
@@ -245,11 +275,12 @@ end
 -- parry and block rules a player swing does. `attacker` is nil when nobody owns the
 -- swing, which is why an NPC neither gains posture from parrying nor eats it.
 function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, attacker: Player?): string
+	local defender = if target.Parent and target.Parent:IsA("Model") then target.Parent else nil
 	local victim = Players:GetPlayerFromCharacter(target.Parent)
 	local held = if victim then guardStart[victim] else nil
 	if not victim or not held then
 		hurt(target, damage)
-		broadcastFx("hit", target.RootPart)
+		broadcastFx("hit", target.RootPart, defender)
 
 		-- Only a clean hit staggers. Blocking or parrying is the reward for defending,
 		-- so neither may cost the defender their turn.
@@ -265,7 +296,7 @@ function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, 
 	if now - held <= Guard.parryWindow and now >= (whiffUntil[victim] or 0) then
 		parriedAt[victim] = now
 		addPosture(victim, -Guard.parryRelief)
-		broadcastFx("parry", target.RootPart)
+		broadcastFx("parry", target.RootPart, defender)
 
 		-- The impact animation belongs to whoever caught the blow, and it is their own
 		-- weapon absorbing it — so the side comes from the DEFENDER's class, not the
@@ -288,7 +319,7 @@ function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, 
 
 	-- Otherwise an ordinary block: posture always, health only on chip
 	addPosture(victim, damage * Guard.postureFactor)
-	broadcastFx("blocked", target.RootPart)
+	broadcastFx("blocked", target.RootPart, defender)
 	if class and class.chip then
 		target:TakeDamage(damage * class.chip)
 	end
@@ -417,6 +448,7 @@ function WeaponService.Start()
 	Net.On("SetGrip", onGripRequest)
 	Net.On("SetGuard", onGuardRequest)
 	Net.On("Swung", onSwungReport)
+	Net.On("Telegraph", onTelegraphReport)
 
 	-- Server->client only, so nothing else would ever create them
 	Net.Register("Knockback")

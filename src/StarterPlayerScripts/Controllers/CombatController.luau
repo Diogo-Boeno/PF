@@ -22,13 +22,25 @@ local DASH_KEY = Enum.KeyCode.Q
 local START_MARKER = "Start"
 local END_MARKER = "End"
 
+-- Optional third event: where the blade lights up to say a parry would land. Authored,
+-- not derived — the window is counted from the defender's F press, so the tell has to
+-- come BEFORE the hitbox opens, and only the animation knows how much before.
+-- No `Tell` in an animation means that attack simply cannot be read. That is a design
+-- choice per move, not an error.
+local TELL_MARKER = "Tell"
+
 -- Read by Animate.client, which otherwise keeps filling the joints an attack skips
 local ATTACK_LOCK = "AttackLock"
 
--- Above the Core that Animate.client plays; attacks above those
+-- Above the Core that Animate.client plays
 local LOCOMOTION_PRIORITY = Enum.AnimationPriority.Action
-local SWING_PRIORITY = Enum.AnimationPriority.Action2
--- Over a held block, which is Action2 and never coexists with an attack
+
+-- An attack is never overridden by anything. This is a competitive game: a swing that
+-- can be visually diluted mid-frame is a swing the opponent cannot read reliably.
+local SWING_PRIORITY = Enum.AnimationPriority.Action4
+
+-- Reactions ride over a held block. They never fight a swing, because anything that
+-- triggers one has already cancelled the swing outright.
 local REACTION_PRIORITY = Enum.AnimationPriority.Action3
 
 type Kind = "swing" | "flourish" | "heavy" | "aerial" | "parried"
@@ -70,6 +82,16 @@ local queued = false
 
 -- Debug only: an attack that ends without this is missing its Start marker
 local openedHitbox = false
+
+-- Set when we cut an attack ourselves. An interrupted swing legitimately never
+-- reaches its Start marker, so warning about it would cry wolf every stagger.
+local cancelled = false
+
+-- Where each animation's Start marker sits, learned by watching it fire once. Lets the
+-- parry tell be derived when an animation has no authored `Tell`, at the cost of the
+-- first use of each attack going untelegraphed. An authored marker always wins.
+local hasTellMarker: { [string]: boolean } = {}
+local tellToken = 0
 
 -- Rebuilt only when the mounted model changes, not per attack
 local hitbox: any = nil
@@ -577,6 +599,57 @@ local function updateLocomotion()
 	end
 end
 
+-- Per kind, because the tell has to come off whatever is actually going to hit you:
+-- a blade for a swing, a foot for the flourish
+local function fireTell(kind: Kind)
+	local root, character = rootPart(), player.Character
+	if not root or not character then
+		return
+	end
+
+	local event = kind .. "Tell"
+	FxController.play(event, root.Position, character)
+	Net.FireServer("Swung", event)
+end
+
+-- Schedules the tell for animations with no authored `Tell` marker.
+--
+-- Timing comes from the class's `hitAt`, which is read off the editor. A run-time
+-- measurement was tried and abandoned: markers do not fire on a weight-0 track, and
+-- learning from the first real swing left that swing untelegraphed.
+local function scheduleTell(track: AnimationTrack)
+	local animation = track.Animation
+	local id = if animation then animation.AnimationId else ""
+	if id == "" or hasTellMarker[id] then
+		return
+	end
+
+	local weaponId = player:GetAttribute(Config.attribute)
+	local class = if type(weaponId) == "number" then classFor(weaponId) else nil
+	local hitAt = class and class.hitAt
+	if type(hitAt) ~= "number" then
+		return
+	end
+
+	local lead = hitAt - Config.guard.parryWindow
+	if lead <= 0 then
+		return
+	end
+
+	local kind = kindOf[track]
+	if not kind then
+		return
+	end
+
+	tellToken += 1
+	local token = tellToken
+	task.delay(lead, function()
+		if tellToken == token and current == track then
+			fireTell(kind)
+		end
+	end)
+end
+
 local function play(track: AnimationTrack)
 	local previous = current
 
@@ -588,9 +661,21 @@ local function play(track: AnimationTrack)
 	end
 
 	openedHitbox = false
+	cancelled = false
 	stopLocomotion()
 	setAttackLock(true)
 	track:Play(FADE)
+
+	-- Telegraph on the first frame of the windup, not when the blade goes live: a tell
+	-- that arrives with the hitbox is not a tell
+	local kind = kindOf[track]
+	local character = player.Character
+	if kind and character then
+		FxController.highlight(kind, character)
+		Net.FireServer("Telegraph", kind)
+	end
+
+	scheduleTell(track)
 end
 
 local function playNext()
@@ -618,10 +703,12 @@ local function onAttackEnded(track: AnimationTrack)
 
 	local kind = kindOf[track]
 
-	-- The likeliest reason a hitbox "does not work" is the marker never being authored
-	if debugging() and not openedHitbox and kind ~= "parried" then
+	-- The likeliest reason a hitbox "does not work" is the marker never being authored.
+	-- A cancelled attack is not that, and warning about it would drown the real case.
+	if debugging() and not openedHitbox and not cancelled and kind ~= "parried" then
 		warn(`[Hitbox] {kind} ended without ever opening — no "{START_MARKER}" marker?`)
 	end
+	cancelled = false
 
 	if kind == "flourish" then
 		chainReadyAt = lastAttackEnd + Config.endlag
@@ -653,11 +740,34 @@ local function buildTrack(target: Animator, id: string, kind: Kind): AnimationTr
 	track.Looped = false
 	kindOf[track] = kind
 
+	-- Logs which markers an animation actually fires. A marker that was authored but
+	-- never published simply never arrives, and without this it is indistinguishable
+	-- from broken code downstream.
+	local function reached(marker: string)
+		if debugging() then
+			print(`[Marker] {kind}: {marker}`)
+		end
+	end
+
+	local animationId = if track.Animation then track.Animation.AnimationId else ""
+
 	-- The animation owns the active window; code never guesses it
 	track:GetMarkerReachedSignal(START_MARKER):Connect(function()
+		reached(START_MARKER)
 		startHitbox(kind)
 	end)
-	track:GetMarkerReachedSignal(END_MARKER):Connect(stopHitbox)
+	track:GetMarkerReachedSignal(END_MARKER):Connect(function()
+		reached(END_MARKER)
+		stopHitbox()
+	end)
+
+	-- Fired on the attacker's own blade and echoed to everyone: the defender is the
+	-- one who has to see it
+	track:GetMarkerReachedSignal(TELL_MARKER):Connect(function()
+		reached(TELL_MARKER)
+		hasTellMarker[animationId] = true
+		fireTell(kind)
+	end)
 
 	-- A cut attack never reaches its End marker
 	track.Stopped:Connect(stopHitbox)
@@ -903,6 +1013,7 @@ local function onStagger(duration: any)
 
 	local active = current
 	if active then
+		cancelled = true
 		active:Stop(FADE)
 	end
 	stopGuard()

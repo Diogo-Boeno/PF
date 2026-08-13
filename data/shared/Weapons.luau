@@ -61,6 +61,15 @@ local Weapons = {
 				"rbxassetid://122778194882345",
 				"rbxassetid://109187943328490",
 			},
+
+			-- Seconds from the start of the animation to where its `Start` marker sits,
+			-- read straight off the editor timeline. The parry tell fires
+			-- `guard.parryWindow` before this.
+			--
+			-- Measured rather than guessed by code: a track played at weight 0 does not
+			-- report markers, and there is no runtime way to ask an animation where its
+			-- events are. One number per move beats three failed inference attempts.
+			hitAt = 0.50,
 			heavy = {
 				animation = "rbxassetid://97463310555309",
 				damage = 26,
@@ -161,6 +170,10 @@ local Weapons = {
 		heavy = true,
 		aerial = true,
 		dash = true,
+		swingTell = true,
+		heavyTell = true,
+		aerialTell = true,
+		flourishTell = true,
 	},
 	swingFxCooldown = 0.15,
 
