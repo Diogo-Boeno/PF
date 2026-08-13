@@ -272,8 +272,38 @@ medir do início faria o próprio encadeamento parecer ociosidade e resetar o co
 **Cada ataque tem o próprio cooldown e nenhum encosta no outro** — heavy não esfria o
 M1, endlag não esfria o aerial, aerial não esfria o heavy. `chainReadyAt`,
 `heavyReadyAt` e `aerialReadyAt` existem separados porque uma variável só compartilhada
-era exatamente o que fazia um vazar no outro. A única trava global é `staggerUntil`, de
-ter levado parry — essa **deve** parar tudo.
+era exatamente o que fazia um vazar no outro.
+
+Duas travas são globais de propósito:
+
+- **`staggerUntil`** — levou parry **ou tomou hit limpo**. Corta o golpe em andamento e
+  bloqueia ataque por `hitstun`. Sem isso, trocar M1 pra sempre é a jogada ótima e
+  tomar dano não custa nada. Bloquear ou aparar **não** staggera: defender bem é o
+  prêmio, não pode custar o turno.
+- **`dashUntil`** — dash e ataque nunca coexistem. Não se ataca dashando (voadora em
+  qualquer um, a qualquer hora) nem se dasha atacando (todo golpe ficaria seguro).
+
+Dash tem **dois perfis**: `dash.ground` é uma arrancada curta pra abrir ou fechar
+espaço, `dash.air` é uma planagem com mais sustentação e menos velocidade. Mesma tecla,
+físicas diferentes, porque no ar e no chão ele resolve problemas diferentes.
+
+`F` segurado durante um ataque **fica lembrado** (`guardHeld`) e a guarda sobe assim que
+o golpe termina. Sem isso, aparar depois de atacar exigiria um clique frame-perfect na
+virada — timing de execução, não de leitura, que é o oposto do que esse combate quer.
+
+`play()` sempre para o track anterior, e reatribui `current` **antes** de parar: o
+`Stopped` do antigo vê que já não é o atual e sai, em vez de limpar o estado que o novo
+acabou de montar.
+
+**`parried` na classe é a animação de quem APAROU** — a lâmina dele absorvendo o golpe,
+não o recuo de quem foi aparado. Logo o lado sai da classe do **defensor** e o evento
+(`ParryImpact`) vai pro client dele. Quem foi aparado recebe `Stagger` com
+`parriedLock`: perde o turno, sem animação própria.
+
+Ela toca **por cima** do block, sem derrubar a guarda nem tocar em `current` — ser
+premiado por aparar não pode custar a postura de defesa.
+
+Com `left` e `right` o server sorteia; com uma só usa aquela.
 
 O último golpe da corrente não volta pro 1: fecha em **endlag**, uma janela sem input.
 Fechar o combo custa alguma coisa, senão M1 em loop é a resposta ótima pra tudo.
@@ -398,6 +428,9 @@ olha. Uma `GetPartBoundsInBox` à frente no marker `Start` basta.
 `WeaponService.resolveHit` existe **porque** o NPC precisa passar exatamente pelas
 mesmas regras de parry e block que um golpe de player. `attacker` nil significa que
 ninguém é dono do golpe — por isso NPC não ganha nem sofre postura.
+
+NPC aparado perde o turno igual a um player (`parriedLock`), mas não toca animação de
+impacto: aquela animação é de quem **aparou**, e o NPC não apara.
 
 ### Hotbar
 

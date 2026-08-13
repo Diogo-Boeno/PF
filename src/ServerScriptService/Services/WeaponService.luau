@@ -119,8 +119,8 @@ local function onGuardRequest(player: Player, holding: any)
 end
 
 -- Right is the only side every class carries, so it is the fallback
-local function parriedSide(class: any): string?
-	local set = class.parried
+local function parriedSide(class: any?): string?
+	local set = class and class.parried
 	if not set then
 		return nil
 	end
@@ -240,6 +240,12 @@ function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, 
 	if not victim or not held then
 		target:TakeDamage(damage)
 		broadcastFx("hit", target.RootPart)
+
+		-- Only a clean hit staggers. Blocking or parrying is the reward for defending,
+		-- so neither may cost the defender their turn.
+		if victim then
+			Net.FireClient("Stagger", victim, Config.hitstun)
+		end
 		return "hit"
 	end
 
@@ -251,12 +257,21 @@ function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, 
 		addPosture(victim, -Guard.parryRelief)
 		broadcastFx("parry", target.RootPart)
 
+		-- The impact animation belongs to whoever caught the blow, and it is their own
+		-- weapon absorbing it — so the side comes from the DEFENDER's class, not the
+		-- attacker's. The attacker just loses their turn.
+		local defenderSide = parriedSide(classFor(victim))
+		if defenderSide then
+			Net.FireClient("ParryImpact", victim, defenderSide)
+		end
+
 		if attacker then
 			addPosture(attacker, Guard.parryPosture)
-			local side = parriedSide(class)
-			if side then
-				Net.FireClient("Parried", attacker, side)
-			end
+			Net.FireClient("Stagger", attacker, Guard.parriedLock)
+		end
+
+		if Config.debugHitbox.enabled then
+			print(`[Parry] {victim.Name} parried {if attacker then attacker.Name else "an NPC"}`)
 		end
 		return "parried"
 	end
@@ -389,7 +404,8 @@ function WeaponService.Start()
 
 	-- Server->client only, so nothing else would ever create them
 	Net.Register("Knockback")
-	Net.Register("Parried")
+	Net.Register("ParryImpact")
+	Net.Register("Stagger")
 	Net.Register("Fx")
 
 	Players.PlayerAdded:Connect(grantStarter)

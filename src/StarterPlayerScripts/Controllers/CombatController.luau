@@ -56,6 +56,13 @@ local kindOf: { [AnimationTrack]: Kind } = {}
 
 local guarding = false
 
+-- F stays remembered while an attack runs, so the parry fires the instant the swing
+-- ends instead of demanding a frame-perfect press right after it
+local guardHeld = false
+
+-- Forward declared: onAttackEnded has to reach it, and it is defined further down
+local startGuard: () -> ()
+
 local comboIndex = 0
 local current: AnimationTrack? = nil
 local activeKind: Kind? = nil
@@ -86,6 +93,10 @@ local chainReadyAt = 0
 local heavyReadyAt = 0
 local aerialReadyAt = 0
 local dashReadyAt = 0
+
+-- While this is in the future the dash owns the character: no attack starts, and
+-- dash cannot start during one either. The two are never simultaneous.
+local dashUntil = 0
 
 -- The one lock that is meant to stop everything: being parried is a stagger
 local staggerUntil = 0
@@ -482,6 +493,7 @@ local function clearTracks()
 	heavyReadyAt = 0
 	aerialReadyAt = 0
 	staggerUntil = 0
+	dashUntil = 0
 	stopDash()
 	setAttackLock(false)
 	releaseHitbox()
@@ -560,7 +572,15 @@ local function updateLocomotion()
 end
 
 local function play(track: AnimationTrack)
+	local previous = current
+
+	-- Reassigned before stopping, so the old track's Stopped sees it is no longer
+	-- current and bails out instead of clearing state the new one just set
 	current = track
+	if previous and previous ~= track then
+		previous:Stop(FADE)
+	end
+
 	openedHitbox = false
 	stopLocomotion()
 	setAttackLock(true)
@@ -614,6 +634,11 @@ local function onAttackEnded(track: AnimationTrack)
 	queued = false
 	setAttackLock(false)
 	updateLocomotion()
+
+	-- Held through the swing: the parry window opens now, not on a new press
+	if guardHeld then
+		startGuard()
+	end
 end
 
 local function buildTrack(target: Animator, id: string, kind: Kind): AnimationTrack
@@ -732,7 +757,7 @@ end
 
 local function swing()
 	local now = os.clock()
-	if guarding or stunned() or now < staggerUntil then
+	if guarding or stunned() or now < staggerUntil or now < dashUntil then
 		return
 	end
 
@@ -764,7 +789,7 @@ end
 local function heavy()
 	local track = heavyTrack
 	local now = os.clock()
-	if not track or current or guarding or stunned() or now < staggerUntil or now < heavyReadyAt then
+	if not track or current or guarding or stunned() or now < staggerUntil or now < heavyReadyAt or now < dashUntil then
 		return
 	end
 
@@ -775,7 +800,8 @@ end
 local function dash()
 	local now = os.clock()
 	local living = humanoid
-	if not living or stunned() or now < staggerUntil or now < dashReadyAt then
+	-- `current` blocks it: dashing out of a swing would make every attack safe
+	if not living or current or guarding or stunned() or now < staggerUntil or now < dashReadyAt then
 		return
 	end
 
@@ -789,8 +815,10 @@ local function dash()
 	local steer = living.MoveDirection
 	local direction = if steer.Magnitude > 0 then steer.Unit else root.CFrame.LookVector
 
-	local spec = Config.dash
-	dashReadyAt = now + spec.cooldown
+	-- Same key, different move: a ground burst versus an airborne glide
+	local spec = if airborne() then Config.dash.air else Config.dash.ground
+	dashReadyAt = now + Config.dash.cooldown
+	dashUntil = now + spec.time
 	applyImpulse(direction, spec.speed, spec.lift, spec.time)
 
 	if dashTrack then
@@ -808,9 +836,10 @@ local function toggleGrip()
 	Net.FireServer("SetGrip", Config.otherGrip[currentGrip()])
 end
 
-local function startGuard()
+startGuard = function()
 	local block = blockTrack
-	-- Attack cooldowns do not gate the guard; only a stagger does
+	-- Attack cooldowns do not gate the guard; only a stagger does. `current` does:
+	-- the hold is remembered and retried when the attack ends.
 	if guarding or current or not block or stunned() or os.clock() < staggerUntil then
 		return
 	end
@@ -857,16 +886,33 @@ local function stopGuard()
 	updateLocomotion()
 end
 
-local function onParried(side: any)
-	stopGuard()
-
-	local track = if type(side) == "string" then parriedTracks[side] else nil
-	if track then
-		play(track)
+-- Taking a hit interrupts. Stopping the track fires onAttackEnded, which clears
+-- `current` and shuts the hitbox, so a cancelled swing cannot still connect.
+local function onStagger(duration: any)
+	if type(duration) ~= "number" then
+		return
 	end
 
-	-- The one lock that is supposed to stop everything at once
-	staggerUntil = os.clock() + Config.guard.parriedLock
+	staggerUntil = math.max(staggerUntil, os.clock() + duration)
+	queued = false
+
+	local active = current
+	if active then
+		active:Stop(FADE)
+	end
+	stopGuard()
+end
+
+-- Played on the one who CAUGHT the blow: their own blade absorbing it. The guard is
+-- not dropped and `current` is untouched, so this rides over the held block and the
+-- hold survives it — being rewarded for a parry must not cost the stance.
+local function onParryImpact(side: any)
+	local track = if type(side) == "string" then parriedTracks[side] else nil
+	if not track then
+		warn(`[CombatController] no parry impact animation for side "{tostring(side)}"`)
+		return
+	end
+	track:Play(FADE)
 end
 
 local function applyKnockback(direction: Vector3, speed: number)
@@ -985,6 +1031,7 @@ function CombatController.Start()
 		elseif input.KeyCode == GRIP_KEY then
 			toggleGrip()
 		elseif input.KeyCode == GUARD_KEY then
+			guardHeld = true
 			startGuard()
 		elseif input.KeyCode == DASH_KEY then
 			dash()
@@ -993,6 +1040,7 @@ function CombatController.Start()
 
 	UserInputService.InputEnded:Connect(function(input: InputObject)
 		if input.KeyCode == GUARD_KEY then
+			guardHeld = false
 			stopGuard()
 		end
 	end)
@@ -1006,7 +1054,8 @@ function CombatController.Start()
 
 	-- Last: Net.On yields on WaitForChild, and input must be live before that
 	Net.On("Knockback", applyKnockback)
-	Net.On("Parried", onParried)
+	Net.On("ParryImpact", onParryImpact)
+	Net.On("Stagger", onStagger)
 end
 
 return CombatController

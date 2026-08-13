@@ -41,7 +41,7 @@ local Weapons = {
 	flourish = {
 		animation = "rbxassetid://85666929481197",
 		damage = 8,
-		knockback = 70,
+		knockback = 34,
 		-- A kick is contact in an instant: one query, no sweep
 		hitbox = {
 			shape = "point",
@@ -64,7 +64,7 @@ local Weapons = {
 			heavy = {
 				animation = "rbxassetid://97463310555309",
 				damage = 26,
-				knockback = 55,
+				knockback = 26,
 				-- A thrust is a line with thickness. `range` is the reach, so it stops
 				-- being hostage to how long the blade mesh happens to be
 				hitbox = {
@@ -130,18 +130,25 @@ local Weapons = {
 	-- so a shove has to be a sustained force or it never happens at all.
 	knockbackTime = 0.18,
 
-	-- Upward component. Without it the shove fights ground friction and the Humanoid
-	-- controller at once, and a grounded target barely moves.
-	knockbackLift = 22,
+	-- Enough to unstick from the ground so friction stops eating the shove, and no
+	-- more: higher reads as a launch, which is not what a hit is.
+	knockbackLift = 10,
+
+	-- Taking a real hit cancels whatever you were swinging and locks attacks. Without
+	-- it, trading M1 forever is the optimal play and nothing punishes getting hit.
+	hitstun = 0.45,
 
 	-- Dash goes where you are steering, falling back to facing when standing still.
 	-- `animation` empty until one is authored; the movement works without it.
+	--
+	-- Ground and air are different moves: on the ground it is a short burst that
+	-- closes or breaks spacing, in the air it is a glide that buys distance and hang
+	-- time. Same key, different physics.
 	dash = {
 		animation = "",
-		speed = 70,
-		lift = 6,
-		time = 0.22,
 		cooldown = 1,
+		ground = { speed = 42, lift = 4, time = 0.2 },
+		air = { speed = 32, lift = 12, time = 0.32 },
 	},
 
 	-- Every accepted equip replicates to every client
@@ -193,6 +200,8 @@ local Weapons = {
 export type Weapons = typeof(Weapons)
 
 table.freeze(Weapons.rig)
+table.freeze(Weapons.dash.ground)
+table.freeze(Weapons.dash.air)
 table.freeze(Weapons.dash)
 table.freeze(Weapons.debugHitbox)
 table.freeze(Weapons.swingFx)

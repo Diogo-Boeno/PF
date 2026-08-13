@@ -34,6 +34,7 @@ type Npc = {
 	swings: { AnimationTrack },
 	index: number,
 	nextAttack: number,
+	lockedUntil: number,
 	alive: boolean,
 }
 
@@ -109,7 +110,12 @@ local function strike(npc: Npc, damage: number)
 		local hit = parent and parent:FindFirstChildOfClass("Humanoid")
 		if hit and hit ~= npc.humanoid and not seen[hit] and hit.Health > 0 then
 			seen[hit] = true
-			WeaponService.resolveHit(hit, damage, npc.class, nil)
+
+			-- `nil` attacker: nobody owns this swing, so no posture changes hands.
+			-- Getting parried still costs the turn, exactly as it costs a player theirs.
+			if WeaponService.resolveHit(hit, damage, npc.class, nil) == "parried" then
+				npc.lockedUntil = os.clock() + Config.guard.parriedLock
+			end
 		end
 	end
 end
@@ -187,7 +193,8 @@ local function think(npc: Npc)
 			end
 
 			local now = os.clock()
-			if now >= npc.nextAttack then
+			-- Being parried costs the NPC its turn, same as it costs a player theirs
+			if now >= npc.nextAttack and now >= npc.lockedUntil then
 				npc.nextAttack = now + ATTACK_COOLDOWN
 				attack(npc)
 			end
@@ -216,6 +223,7 @@ local function bind(model: Instance)
 		swings = {},
 		index = 0,
 		nextAttack = 0,
+		lockedUntil = 0,
 		alive = true,
 	}
 
