@@ -26,6 +26,10 @@ local lastHit: { [Player]: { [Humanoid]: number } } = {}
 local guardStart: { [Player]: number } = {}
 local parriedAt: { [Player]: number } = {}
 local whiffUntil: { [Player]: number } = {}
+
+-- Earned by landing a parry. Valid with F already released, which is what turns one
+-- press into a chain instead of one refusal.
+local parryFramesUntil: { [Player]: number } = {}
 local posture: { [Player]: number } = {}
 
 local WeaponService = {}
@@ -125,7 +129,16 @@ end
 -- A hold that never met an attack inside the window costs the parry, not the block
 local function onGuardRequest(player: Player, holding: any)
 	if holding ~= true then
+		local held = guardStart[player]
 		guardStart[player] = nil
+
+		-- Released while still inside the parry window — never once it has settled into
+		-- a block. The frames carry the read past the release, so seeing a swing coming
+		-- and tapping F is enough: no holding through the animation, and the defender
+		-- is free to attack immediately instead of waiting the swing out.
+		if held and os.clock() - held <= Guard.parryWindow then
+			parryFramesUntil[player] = os.clock() + Guard.parryFrames
+		end
 		return
 	end
 
@@ -298,22 +311,50 @@ end
 function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, attacker: Player?): string
 	local defender = if target.Parent and target.Parent:IsA("Model") then target.Parent else nil
 	local victim = Players:GetPlayerFromCharacter(target.Parent)
-	local held = if victim then guardStart[victim] else nil
-	if not victim or not held then
+	local now = os.clock()
+
+	if not victim then
 		hurt(target, damage)
 		broadcastFx("hit", target.RootPart, defender)
-
-		-- Only a clean hit staggers. Blocking or parrying is the reward for defending,
-		-- so neither may cost the defender their turn.
 		silence(defender, Config.hitstun)
 		return "hit"
 	end
 
-	local now = os.clock()
+	local held = guardStart[victim]
 
-	-- Inside the window and not locked out: the hit is refused outright
-	if now - held <= Guard.parryWindow and now >= (whiffUntil[victim] or 0) then
+	-- Two ways to parry, and the second is the point of this system:
+	--   window — pressed F recently enough, the deliberate read
+	--   frames — earned by the previous parry, and valid with F already released
+	-- Chaining is what lets one well-timed press turn away a flurry.
+	local inWindow = held ~= nil and now - held <= Guard.parryWindow and now >= (whiffUntil[victim] or 0)
+	local inFrames = now < (parryFramesUntil[victim] or 0)
+
+	if not inWindow and not inFrames then
+		if not held then
+			hurt(target, damage)
+			broadcastFx("hit", target.RootPart, defender)
+
+			-- Only a clean hit staggers. Blocking or parrying is the reward for
+			-- defending, so neither may cost the defender their turn.
+			silence(defender, Config.hitstun)
+			return "hit"
+		end
+
+		-- Guarding but past the window: an ordinary block
+		addPosture(victim, damage * Guard.postureFactor)
+		broadcastFx("blocked", target.RootPart, defender)
+		if class and class.chip then
+			target:TakeDamage(damage * class.chip)
+		end
+		return "blocked"
+	end
+
+	do
 		parriedAt[victim] = now
+
+		-- Every parry pays for the next one
+		parryFramesUntil[victim] = now + Guard.parryFrames
+
 		addPosture(victim, -Guard.parryRelief)
 		broadcastFx("parry", target.RootPart, defender)
 
@@ -331,18 +372,11 @@ function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, 
 		end
 
 		if Config.debugHitbox.enabled then
-			print(`[Parry] {victim.Name} parried {if attacker then attacker.Name else "an NPC"}`)
+			local how = if inWindow then "window" else "frames"
+			print(`[Parry] {victim.Name} parried {if attacker then attacker.Name else "an NPC"} ({how})`)
 		end
 		return "parried"
 	end
-
-	-- Otherwise an ordinary block: posture always, health only on chip
-	addPosture(victim, damage * Guard.postureFactor)
-	broadcastFx("blocked", target.RootPart, defender)
-	if class and class.chip then
-		target:TakeDamage(damage * class.chip)
-	end
-	return "blocked"
 end
 
 -- Non-player targets are owned by the server, so the shove is applied right here.
@@ -549,6 +583,7 @@ function WeaponService.Start()
 		guardStart[player] = nil
 		parriedAt[player] = nil
 		whiffUntil[player] = nil
+		parryFramesUntil[player] = nil
 		posture[player] = nil
 	end)
 

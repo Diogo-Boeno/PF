@@ -250,6 +250,11 @@ local Weapons = {
 		-- Pressing F with nothing to parry locks the parry out. Block stays free,
 		-- which is what makes panic-mashing F cost something.
 		parryWhiff = 1.5,
+
+		-- Granted BY a successful parry, and valid even after F is released. Landing
+		-- one buys the next: a single well-timed press can turn away a whole flurry,
+		-- and a lone attack no longer demands frame-perfect release.
+		parryFrames = 0.15,
 		postureMax = 100,
 		-- Per second, always draining
 		postureDecay = 1,

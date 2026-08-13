@@ -376,6 +376,25 @@ físicas diferentes, porque no ar e no chão ele resolve problemas diferentes.
 o golpe termina. Sem isso, aparar depois de atacar exigiria um clique frame-perfect na
 virada — timing de execução, não de leitura, que é o oposto do que esse combate quer.
 
+**Existem dois caminhos pro parry, e o segundo é uma mecânica:**
+
+| | vem de | vale com F solto |
+|---|---|---|
+| `parryWindow` | ter apertado `F` há pouco | não |
+| `parryFrames` | aparar, **ou soltar `F` ainda dentro da janela** | **sim** |
+
+Todo parry paga o próximo, e soltar `F` antes de virar block também paga um. Duas
+consequências, e as duas são o design:
+
+- Um aperto bem colocado devolve uma sequência inteira de golpes
+- Dá pra ver o golpe vindo, **dar um tap** em `F` e já atacar — sem segurar a guarda
+  pela animação inteira nem esperar o golpe passar
+
+Soltar depois que a guarda virou block **não** paga nada: ali a leitura já falhou.
+
+É por isso que `resolveHit` avalia parry **antes** de olhar se há guarda — frames valem
+com a tecla solta, então guarda não pode ser pré-requisito.
+
 `play()` sempre para o track anterior, e reatribui `current` **antes** de parar: o
 `Stopped` do antigo vê que já não é o atual e sai, em vez de limpar o estado que o novo
 acabou de montar.
