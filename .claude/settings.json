@@ -79,7 +79,11 @@
       "WebFetch(domain:deepwoken-wiki.wikidot.com)",
       "WebFetch(domain:pilgrammed.miraheze.org)",
       "PowerShell(Set-Location \"c:\\\\Users\\\\diogo\\\\Projects\\\\PF\"; stylua data/shared/Weapons.luau data/shared/Fx.luau src/ServerScriptService/Services/WeaponService.luau src/StarterPlayerScripts/Controllers/FxController.luau src/StarterPlayerScripts/Controllers/CombatController.luau; if \\($?\\) { selene data/shared/Weapons.luau data/shared/Fx.luau src/ServerScriptService/Services/WeaponService.luau src/StarterPlayerScripts/Controllers/FxController.luau src/StarterPlayerScripts/Controllers/CombatController.luau }; rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\")",
-      "PowerShell(Set-Location \"c:\\\\Users\\\\diogo\\\\Projects\\\\PF\"; rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\")"
+      "PowerShell(Set-Location \"c:\\\\Users\\\\diogo\\\\Projects\\\\PF\"; rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\")",
+      "WebFetch(domain:wally.run)",
+      "PowerShell(Set-Location \"c:\\\\Users\\\\diogo\\\\Projects\\\\PF\"; stylua data/shared/Progression.luau src/ServerScriptService/Services/DataService.luau; if \\($?\\) { selene data/shared/Progression.luau src/ServerScriptService/Services/DataService.luau }; rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\")",
+      "PowerShell(Set-Location \"c:\\\\Users\\\\diogo\\\\Projects\\\\PF\"; stylua src/ServerScriptService/Services/LifeService.luau; if \\($?\\) { selene src/ServerScriptService/Services/LifeService.luau src/ReplicatedStorage/Shared/UI/Common/useAttribute.luau src/ReplicatedStorage/Shared/UI/Common/init.luau src/StarterPlayerScripts/Controllers/CreationController.luau src/StarterPlayerScripts/Controllers/SanctuaryController.luau src/StarterPlayerScripts/Controllers/SheetController.luau }; rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\")",
+      "PowerShell(Set-Location \"c:\\\\Users\\\\diogo\\\\Projects\\\\PF\"; stylua data/shared/Progression.luau src/ServerScriptService/Services/DataService.luau; if \\($?\\) { selene data/shared/Progression.luau src/ServerScriptService/Services/DataService.luau src/StarterPlayerScripts/Controllers/CreationController.luau 2>&1 | Select-String \"error|Results\" }; rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\diogo\\.claude\\projects\\c--Users-diogo-Projects-PF\\memory"

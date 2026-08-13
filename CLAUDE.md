@@ -1,12 +1,15 @@
 # pf
 
-Jogo Roblox solo do Cosmo. Nome de trabalho: **RAGDOLL TACTICS**.
+**ECHOES BEYOND** — MMORPG de ação dark fantasy do Cosmo, solo, Roblox.
+GDD em `gdd.md` e `gddMelhor.md`; `prompt.md` é um rascunho anterior e está desatualizado.
+Nenhum dos três é backlog — não implemente nada de lá sem pedido pelo nome.
 
 Estado: **base técnica**. Existe framework, kit de UI, rig custom animado, combate
 (combo, guarda, parry, postura) e NPC de treino. Não existe progressão nem persistência.
 
-Gênero: **RPG de ação dark fantasy**, referência declarada em Deepwoken. Ver "Mundo e
-progressão" — a terminologia própria vale desde já.
+Referência declarada: Deepwoken — na **filosofia** (lore descoberta, consequência,
+morte com peso), não na cópia. A identidade é Echo, Ressonância, Véu, Primeiros,
+Peregrinação e Cativeiro. Ver "Mundo e progressão".
 
 ## Stack
 
@@ -18,11 +21,16 @@ progressão" — a terminologia própria vale desde já.
 | Lint / format | selene 0.27, StyLua 0.20 |
 | UI | Vide 0.4 — **nunca Roact** |
 | UI dev | UI Labs 2.4, stories em `ReplicatedStorage/Stories/` |
+| ECS | Jecs 0.11 — só para progressão, Estigmas e Echoes |
+| Persistência | ProfileStore 0.1 — pré-requisito da progressão |
 
-**Só `vide` é usado hoje.** `ripple`, `charm`, `rng`, `quickzone` e `profilestore` estão
-no `wally.toml` sem um único `require` em `src/`. `blink` e `asphalt` estão pinados no
-Aftman e não têm arquivo de config no repo. Antes de usar qualquer um deles, pergunte —
-estar instalado não é decisão tomada.
+**Só `vide` é usado hoje.** `ripple`, `charm`, `rng` e `quickzone` estão no `wally.toml`
+sem um único `require` em `src/`. `blink` e `asphalt` estão pinados no Aftman e não têm
+arquivo de config no repo. Antes de usar qualquer um deles, pergunte — estar instalado
+não é decisão tomada.
+
+Duas exceções, decididas e ainda não escritas: **`jecs`** é o ECS do projeto e
+**`profilestore`** é a persistência. Instalados de propósito, sem uso ainda.
 
 `profilestore` presente **não significa que há persistência**. Ainda não há — mas está
 decidido que ela virá por `profilestore`, e ela é pré-requisito da progressão, não um
@@ -154,6 +162,42 @@ mundo — o que mantém a fórmula de dano uma só.
 Cap em **30**, com um desafio no **20** que destrava o resto. Nível e ponto de atributo
 são contas separadas: a curva do Santuário abaixo governa pontos dentro de **um**
 atributo, não o nível do personagem.
+
+### Vidas, morte e Lembranças
+
+Duas vidas úteis moram num perfil só:
+
+| | escopo | some quando |
+|---|---|---|
+| **Memories** (Lembranças) | conta | nunca |
+| **Lineage** | personagem atual | a última vida acaba |
+
+Linhagem nasce com **3 vidas**. Morrer gasta uma. Gastar a última encerra a linhagem:
+parte da Essência gasta volta como Lembranças (`memoryRefund`) e o jogador cai na
+criação de personagem.
+
+**É isso que faz a morte doer sem destruir a conta.** Perde-se a build, não o progresso
+de sempre — e é o que permite `Lineage = nil` ser o próprio gatilho da tela de criação,
+sem flag separada.
+
+Vida se recupera por `DataService.grantLife`. **Como** ela se recupera no mundo ainda
+não foi decidido.
+
+`LifeService` desliga `CharacterAutoLoads` e é o server que decide quando existe corpo.
+Sem linhagem, ninguém spawna — é isso que faz a tela de criação não precisar de flag
+própria. Ele contém um **grant de teste** (`AUTO_ORIGIN`) que dá a primeira Origem no
+join; some quando a tela de criação puder chamar `CreateLineage`.
+
+### Santuário
+
+Tag `Sanctuary` numa `BasePart`. Comprar atributo é `Net "BuyAttribute"`, e o server
+confere **distância até um Santuário** antes de qualquer outra coisa.
+
+Isso não é anti-cheat de rotina: "ir até lá" *é* a mecânica. Cliente que comprasse de
+qualquer lugar transformaria a Peregrinação inteira num menu de pausa.
+
+`buyAttribute` recusa com motivo (`unknown`, `maxed`, `rite`, `essence`) em vez de só
+falhar — o teto bloqueado é design, e a UI precisa dizer qual dos dois parou.
 
 ### Curva do Santuário
 
@@ -418,9 +462,20 @@ Componente é **controlado**: `value: () -> T` mais `on<Ação>: (T) -> ()`, sem
 interno. Existem hoje: Button, CloseButton, Window, Checkbox, TextInput, ModelViewport,
 AutoScale, HitCircle.
 
-**Nem toda UI é Vide.** Vide é para o kit reutilizável em `UI/Common/`. Tela montada à
-mão no Studio (hoje: `HotbarUI`) é dirigida por Controller que lê a hierarquia pronta —
-não reconstrua em Vide sem pedir. Essa UI vive no place file, não no Rojo.
+**Nem toda UI é Vide.** Hotbar e barras de vida/postura são montadas à mão no Studio e
+dirigidas por Controller que lê a hierarquia pronta — vivem no place file, não no Rojo,
+e não devem ser reconstruídas em Vide sem pedir.
+
+Telas de progressão são Vide, montadas em `Vide.root` dentro do Controller:
+`CreationController` (criação), `SanctuaryController` (compra), `SheetController` (Tab).
+São **MVP** — funcionais, não finalizadas.
+
+`useAttribute(instance, name, default)` liga atributo replicado a uma source Vide. Como
+toda a progressão replica por atributo, é o único elo que essas telas precisam.
+
+Nenhuma delas lê `Lives` sem antes checar `ProfileLoaded`: os defaults de um perfil que
+ainda não chegou são indistinguíveis dos de quem não tem linhagem, e sem essa checagem a
+tela de criação pisca na cara de quem só reconectou.
 
 ## Estado
 

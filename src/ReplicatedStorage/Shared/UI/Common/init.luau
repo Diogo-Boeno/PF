@@ -12,6 +12,7 @@ local ModelViewport = require(script.ModelViewport)
 local AutoScale = require(script.AutoScale)
 local HitCircle = require(script.HitCircle)
 local StatBar = require(script.StatBar)
+local useAttribute = require(script.useAttribute)
 
 export type Theme = Theme.Theme
 export type ButtonProps = Button.ButtonProps
@@ -36,6 +37,7 @@ return table.freeze({
 	AutoScale = AutoScale,
 	HitCircle = HitCircle,
 	StatBar = StatBar,
+	useAttribute = useAttribute,
 
 	-- next pass: Slider, Dropdown, ProgressBar, Tooltip
 })

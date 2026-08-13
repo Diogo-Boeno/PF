@@ -7,6 +7,7 @@ realm = "shared"
 [dependencies]
 
 vide = "centau/vide@0.4.0"
+jecs = "ukendio/jecs@0.11.0"
 ui-labs = "pepeeltoro41/ui-labs@2.4.2"
 ripple = "littensy/ripple@0.10.2"
 charm = "littensy/charm@0.11.0"
