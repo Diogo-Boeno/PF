@@ -307,6 +307,35 @@ era exatamente o que fazia um vazar no outro.
 corrente normal.** O aerial tem prioridade, não exclusividade — não fazer nada ali lê
 como input engolido.
 
+### Crouch e Uppercut
+
+`Ctrl` alterna crouch. Ele escreve o atributo `Crouching` no **character**, não no
+Player: NPC e outros clients precisam ler isso sem remote.
+
+Crouch anda a `crouch.speed`, **cancela corrida** e impede iniciar uma — senão viraria
+toggle de velocidade grátis em vez de troca. As animações de crouch são universais e
+substituem o par da classe inteiro, porque agachar é postura e não jeito de segurar arma.
+
+`crouch.stealth` multiplica a distância em que um NPC te registra. É o alicerce do
+backstab.
+
+**M1 agachado é o Uppercut**, nunca um swing — postura deliberada ganha da ordem da
+corrente. Hitbox `point` igual à do flourish, e acertar **levanta os dois**: o prêmio é
+uma janela compartilhada no ar, não distância. O `Launch` vai pros dois clients, cada um
+dono da própria física.
+
+Duas impulsões distintas, e a diferença importa:
+
+- **`lunge`** — no golpe, antes do contato. Só o atacante, porque ainda não acertou
+  ninguém. É o que faz um golpe agachado ter alcance.
+- **`carry`** — no lançamento. Vai pros **dois**, com o mesmo heading vindo do server,
+  senão a vítima ficaria suspensa onde estava enquanto o atacante passa reto.
+
+O lançamento tem duas fases (`riseTime` depois `hangTime`) porque um impulso único
+descreveria um arco e cairia de volta — a suspensão *é* a mecânica. O `carry` cai pela
+metade durante o hover: o suficiente pra continuarem juntos, não pra saírem voando antes
+da janela acabar.
+
 Duas travas são globais de propósito:
 
 - **`staggerUntil`** — levou parry **ou tomou hit limpo**. Corta o golpe em andamento e
@@ -525,6 +554,16 @@ punhado de dummies não paga isso. Muitos NPCs mudam essa conta.
 
 O NPC não precisa de raycast na lâmina: o server é dono do rig, então sabe pra onde ele
 olha. Uma `GetPartBoundsInBox` à frente no marker `Start` basta.
+
+Dois cuidados de física, os dois já custaram bug:
+
+- **Escrever `CFrame` numa assembly solta zera a velocidade dela.** O loop de mira do
+  NPC faz isso pra encarar o alvo, então ele salva e restaura `AssemblyLinearVelocity`
+  em volta da escrita. Sem isso, knockback e launch morriam no tick seguinte e o corpo
+  voltava pro chão.
+- **`SetNetworkOwner(nil)`** fixa a simulação no server. A Roblox entrega assembly solta
+  ao client mais próximo por conta própria, e aí força aplicada no server briga com a
+  simulação daquele client.
 
 `WeaponService.resolveHit` existe **porque** o NPC precisa passar exatamente pelas
 mesmas regras de parry e block que um golpe de player. `attacker` nil significa que

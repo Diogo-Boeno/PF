@@ -10,6 +10,7 @@ local WeaponController = require(script.Parent.WeaponController)
 local UI_NAME = "HotbarUI"
 local HOLDER_NAME = "Holder"
 local LABEL_NAME = "ContentName"
+local FIND_TIMEOUT = 10
 
 -- Button names follow the keyboard row, not the grid order
 local SLOT_KEYS: { [Enum.KeyCode]: string } = {
@@ -72,8 +73,18 @@ local function activate(slot: string)
 end
 
 function HotbarController.Start()
-	local gui = player:WaitForChild("PlayerGui"):WaitForChild(UI_NAME)
-	local holder = gui:WaitForChild(HOLDER_NAME)
+	-- Bounded: a missing hand-built UI should say so, not hang the controller forever
+	local gui = player:WaitForChild("PlayerGui"):WaitForChild(UI_NAME, FIND_TIMEOUT)
+	if not gui then
+		warn(`[HotbarController] PlayerGui has no {UI_NAME}`)
+		return
+	end
+
+	local holder = gui:WaitForChild(HOLDER_NAME, FIND_TIMEOUT)
+	if not holder then
+		warn(`[HotbarController] {UI_NAME} has no {HOLDER_NAME}`)
+		return
+	end
 
 	-- Tied LayoutOrder falls back to child order, which differs once replicated
 	local layout = holder:FindFirstChildOfClass("UIGridLayout")

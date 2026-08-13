@@ -43,7 +43,7 @@ local SWING_PRIORITY = Enum.AnimationPriority.Action4
 -- triggers one has already cancelled the swing outright.
 local REACTION_PRIORITY = Enum.AnimationPriority.Action3
 
-type Kind = "swing" | "flourish" | "heavy" | "aerial" | "parried"
+type Kind = "swing" | "flourish" | "heavy" | "aerial" | "parried" | "uppercut"
 
 local player = Players.LocalPlayer
 
@@ -63,6 +63,12 @@ local aerialTrack: AnimationTrack? = nil
 local blockTrack: AnimationTrack? = nil
 local parryTrack: AnimationTrack? = nil
 local dashTrack: AnimationTrack? = nil
+local uppercutTrack: AnimationTrack? = nil
+
+-- Universal locomotion, loaded per character: crouching is not a weapon stance
+local crouchIdleTrack: AnimationTrack? = nil
+local crouchWalkTrack: AnimationTrack? = nil
+local uppercutReadyAt = 0
 local parriedTracks: { [string]: AnimationTrack } = {}
 local kindOf: { [AnimationTrack]: Kind } = {}
 
@@ -87,9 +93,8 @@ local openedHitbox = false
 -- reaches its Start marker, so warning about it would cry wolf every stagger.
 local cancelled = false
 
--- Where each animation's Start marker sits, learned by watching it fire once. Lets the
--- parry tell be derived when an animation has no authored `Tell`, at the cost of the
--- first use of each attack going untelegraphed. An authored marker always wins.
+-- Animations that carry a real `Tell` marker. Those never use the `hitAt` fallback,
+-- because an authored event always beats a number in a config.
 local hasTellMarker: { [string]: boolean } = {}
 local tellToken = 0
 
@@ -445,9 +450,12 @@ end
 
 -- No `hitbox` key means the attack cuts with the blade, same rule as everywhere else
 local function hitboxSpecFor(kind: Kind): any?
-	-- The flourish is a kick, so no weapon lengthens it
+	-- Both are body attacks, so no weapon lengthens them
 	if kind == "flourish" then
 		return Config.flourish.hitbox
+	end
+	if kind == "uppercut" then
+		return Config.uppercut.hitbox
 	end
 
 	local id = player:GetAttribute(Config.attribute)
@@ -564,19 +572,42 @@ local function clearTracks()
 	comboIndex = 0
 end
 
+local function crouching(): boolean
+	local character = player.Character
+	return character ~= nil and character:GetAttribute(Config.crouch.attribute) == true
+end
+
 local function stopLocomotion()
-	local idle, walk = idleTrack, walkTrack
-	if idle and idle.IsPlaying then
-		idle:Stop(FADE)
-	end
-	if walk and walk.IsPlaying then
-		walk:Stop(FADE)
+	for _, track in { idleTrack, walkTrack, crouchIdleTrack, crouchWalkTrack } do
+		if track and track.IsPlaying then
+			track:Stop(FADE)
+		end
 	end
 end
 
 local function updateLocomotion()
-	local idle, walk, living = idleTrack, walkTrack, humanoid
-	if not idle or not walk or not living then
+	local living = humanoid
+	if not living then
+		return
+	end
+
+	-- Crouch animations are universal and replace the class pair outright, because
+	-- sneaking is a posture and not a way of holding a weapon
+	local low = crouching()
+	local idle = if low then crouchIdleTrack else idleTrack
+	local walk = if low then crouchWalkTrack else walkTrack
+
+	-- Silence the unused pair FIRST, and unconditionally. Unarmed there is no class
+	-- pair at all, and bailing out before this left the crouch loop running with no
+	-- way to stand back up until a weapon was equipped.
+	for _, other in { idleTrack, walkTrack, crouchIdleTrack, crouchWalkTrack } do
+		if other and other ~= idle and other ~= walk and other.IsPlaying then
+			other:Stop(FADE)
+		end
+	end
+
+	-- Unarmed and standing: nothing of ours should play, and Animate.client takes over
+	if not idle or not walk then
 		return
 	end
 
@@ -716,6 +747,8 @@ local function onAttackEnded(track: AnimationTrack)
 		aerialReadyAt = lastAttackEnd + Config.aerialCooldown
 	elseif kind == "heavy" then
 		heavyReadyAt = lastAttackEnd + Config.heavyCooldown
+	elseif kind == "uppercut" then
+		uppercutReadyAt = lastAttackEnd + Config.uppercut.cooldown
 	elseif kind == "parried" then
 		comboIndex = 0
 	elseif queued then
@@ -799,6 +832,9 @@ local function loadTracks(weaponId: number)
 	-- Flourish is the chain's last link for every weapon, not a class animation
 	table.insert(chain, buildTrack(target, Config.flourish.animation, "flourish"))
 
+	-- Universal like the flourish, but off the chain: it answers to crouch, not to M1 order
+	uppercutTrack = buildTrack(target, Config.uppercut.animation, "uppercut")
+
 	if class.heavy then
 		heavyTrack = buildTrack(target, class.heavy.animation, "heavy")
 	end
@@ -874,6 +910,19 @@ end
 local function swing()
 	local now = os.clock()
 	if guarding or stunned() or now < staggerUntil or now < dashUntil then
+		return
+	end
+
+	-- Crouched M1 is the uppercut, never a swing. Deliberate stance beats chain order.
+	if crouching() and uppercutTrack and not current and now >= uppercutReadyAt then
+		play(uppercutTrack)
+
+		-- Lunge on the swing, not on the hit: it is what lets the blow reach at all
+		local root = rootPart()
+		if root then
+			local spec = Config.uppercut
+			applyImpulse(root.CFrame.LookVector, spec.lungeSpeed, nil, spec.lungeTime)
+		end
 		return
 	end
 
@@ -1031,6 +1080,27 @@ local function onParryImpact(side: any)
 	track:Play(FADE)
 end
 
+-- Rise, then hover. Two phases because a single impulse would arc straight back down,
+-- and the hang is the whole point: it is a window both fighters get to use.
+--
+-- `direction` comes from the server so attacker and victim carry the SAME heading —
+-- otherwise the victim would hang where they stood while the attacker sailed past.
+local function applyLaunch(rise: number, riseTime: number, hangTime: number, direction: Vector3, carry: number)
+	if type(rise) ~= "number" or type(riseTime) ~= "number" or type(hangTime) ~= "number" then
+		return
+	end
+
+	local heading = if typeof(direction) == "Vector3" then direction else Vector3.zero
+	local speed = if type(carry) == "number" then carry else 0
+
+	applyImpulse(heading, speed, rise, riseTime)
+	task.delay(riseTime, function()
+		-- The carry belongs to the launch, not the hang: once they are up they hold
+		-- position so the window is a place to fight, not a ride
+		applyImpulse(Vector3.zero, 0, 0, hangTime)
+	end)
+end
+
 local function applyKnockback(direction: Vector3, speed: number)
 	-- Lift on purpose: flat against the ground, friction and the Humanoid controller
 	-- both eat the shove and a grounded target barely budges
@@ -1099,13 +1169,26 @@ local function setupCharacter(character: Model)
 	animator = newAnimator
 	dashForce = buildDashForce(root)
 
-	-- Loaded per character, not per weapon: dashing works unarmed
+	-- Loaded per character, not per weapon: dashing, crouching and the uppercut all
+	-- work unarmed
 	if Config.dash.animation ~= "" then
 		local track = newAnimator:LoadAnimation(assetFor(Config.dash.animation))
 		track.Priority = REACTION_PRIORITY
 		track.Looped = false
 		dashTrack = track
 	end
+
+	local crouchIdle = newAnimator:LoadAnimation(assetFor(Config.crouch.idle))
+	crouchIdle.Priority = LOCOMOTION_PRIORITY
+	crouchIdle.Looped = true
+	crouchIdleTrack = crouchIdle
+
+	local crouchWalk = newAnimator:LoadAnimation(assetFor(Config.crouch.walk))
+	crouchWalk.Priority = LOCOMOTION_PRIORITY
+	crouchWalk.Looped = true
+	crouchWalkTrack = crouchWalk
+
+	table.insert(connections, character:GetAttributeChangedSignal(Config.crouch.attribute):Connect(updateLocomotion))
 
 	table.insert(connections, newHumanoid:GetPropertyChangedSignal("MoveDirection"):Connect(updateLocomotion))
 
@@ -1170,6 +1253,7 @@ function CombatController.Start()
 
 	-- Last: Net.On yields on WaitForChild, and input must be live before that
 	Net.On("Knockback", applyKnockback)
+	Net.On("Launch", applyLaunch)
 	Net.On("ParryImpact", onParryImpact)
 	Net.On("Stagger", onStagger)
 end

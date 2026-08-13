@@ -157,9 +157,16 @@ local function nearestPlayer(npc: Npc): BasePart?
 		local character = player.Character
 		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 		local root = humanoid and humanoid.RootPart
-		if root and humanoid.Health > 0 then
+		if root and character and not HealthService.isDefeated(character) then
+			-- Crouching shortens the range you register at, which is what makes it a
+			-- tradeoff instead of a free slow walk
+			local reach = bestDistance
+			if character:GetAttribute(Config.crouch.attribute) == true then
+				reach *= Config.crouch.stealth
+			end
+
 			local distance = (root.Position - npc.root.Position).Magnitude
-			if distance < bestDistance then
+			if distance < reach then
 				best = root
 				bestDistance = distance
 			end
@@ -187,11 +194,17 @@ local function think(npc: Npc)
 
 		local targetRoot = nearestPlayer(npc)
 		if targetRoot then
-			-- Face the target: the hitbox is cast straight ahead
+			-- Face the target: the hitbox is cast straight ahead.
+			--
+			-- Writing CFrame on a loose assembly ZEROES its velocity, so this has to
+			-- put it back. Without that, this loop quietly cancelled every knockback
+			-- and launch on the next tick and the body snapped back down.
 			local position = npc.root.Position
 			local look = (targetRoot.Position - position) * Vector3.new(1, 0, 1)
 			if look.Magnitude > 0 then
+				local velocity = npc.root.AssemblyLinearVelocity
 				npc.root.CFrame = CFrame.lookAt(position, position + look.Unit)
+				npc.root.AssemblyLinearVelocity = velocity
 			end
 
 			local now = os.clock()
@@ -228,6 +241,16 @@ local function bind(model: Instance)
 		lockedUntil = 0,
 		alive = true,
 	}
+
+	-- Pin simulation to the server. Roblox hands ownership of a loose assembly to the
+	-- nearest client, and then a server-applied force is fought by that client's own
+	-- simulation — the body snaps back to where the client thought it was. Every
+	-- knockback and launch on this rig depends on the server owning it.
+	if not npc.root.Anchored then
+		pcall(function()
+			npc.root:SetNetworkOwner(nil)
+		end)
+	end
 
 	HealthService.setup(model)
 	armWeapon(npc)

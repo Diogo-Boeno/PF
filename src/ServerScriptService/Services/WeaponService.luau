@@ -262,6 +262,9 @@ local function damageFor(class: any, kind: any): number?
 	if kind == "flourish" then
 		return Config.flourish.damage
 	end
+	if kind == "uppercut" then
+		return Config.uppercut.damage
+	end
 	if kind == "heavy" then
 		return if class.heavy then class.heavy.damage else nil
 	end
@@ -345,6 +348,31 @@ local function shoveHere(root: BasePart, direction: Vector3, speed: number)
 	Debris:AddItem(anchor, Config.knockbackTime)
 end
 
+-- Server-owned bodies get launched here, mirroring the client's two phases. Without
+-- this an NPC just stands there while the attacker rises, and the juggle has nobody
+-- in it.
+local function launchHere(root: BasePart, heading: Vector3, spec: any)
+	local anchor = Instance.new("Attachment")
+	anchor.Name = "Launch"
+	anchor.Parent = root
+
+	local force = Instance.new("LinearVelocity")
+	force.Attachment0 = anchor
+	force.RelativeTo = Enum.ActuatorRelativeTo.World
+	force.MaxForce = math.huge
+	force.VectorVelocity = Vector3.new(heading.X * spec.carrySpeed, spec.riseSpeed, heading.Z * spec.carrySpeed)
+	force.Parent = anchor
+
+	-- Carry belongs to the launch, not the hang: they hold position once up
+	task.delay(spec.riseTime, function()
+		if force.Parent then
+			force.VectorVelocity = Vector3.zero
+		end
+	end)
+
+	Debris:AddItem(anchor, spec.riseTime + spec.hangTime)
+end
+
 -- Same rule as damage: a move with no `knockback` key simply does not shove
 local function knockbackFor(class: any, kind: any): number?
 	if kind == "flourish" then
@@ -420,6 +448,29 @@ local function onHitReport(player: Player, target: any, kind: any)
 
 	-- The target's client owns that character's physics, so a server-side shove
 	-- would just be overwritten by its next simulation step
+	-- The uppercut lifts BOTH of them: the reward is a shared window in the air, not
+	-- distance. Sent to each client because each owns its own character's physics.
+	if kind == "uppercut" then
+		local spec = Config.uppercut
+
+		-- One heading for both, taken from the attacker: they leave the ground as a
+		-- pair and stay a pair for the whole hang
+		local heading = attackerRoot.CFrame.LookVector * Vector3.new(1, 0, 1)
+		heading = if heading.Magnitude > 0 then heading.Unit else Vector3.zero
+
+		-- Whoever owns the body applies the force: the victim's client if it has one,
+		-- this server if it does not
+		local victim = Players:GetPlayerFromCharacter(target.Parent)
+		if victim then
+			Net.FireClient("Launch", victim, spec.riseSpeed, spec.riseTime, spec.hangTime, heading, spec.carrySpeed)
+		else
+			launchHere(targetRoot, heading, spec)
+		end
+
+		Net.FireClient("Launch", player, spec.riseSpeed, spec.riseTime, spec.hangTime, heading, spec.carrySpeed)
+		return
+	end
+
 	local push = knockbackFor(class, kind)
 	if not push then
 		return
@@ -452,6 +503,7 @@ function WeaponService.Start()
 
 	-- Server->client only, so nothing else would ever create them
 	Net.Register("Knockback")
+	Net.Register("Launch")
 	Net.Register("ParryImpact")
 	Net.Register("Stagger")
 	Net.Register("Fx")

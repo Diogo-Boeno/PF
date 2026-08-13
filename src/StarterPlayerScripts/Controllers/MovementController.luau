@@ -5,6 +5,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage.Data.Movement)
+local Weapons = require(ReplicatedStorage.Data.Weapons)
+
+local CROUCH_KEY = Enum.KeyCode.LeftControl
 
 local SPRINT_KEY = Enum.KeyCode.W
 
@@ -26,6 +29,7 @@ LAND_ASSET.AnimationId = Config.animation.land
 local player = Players.LocalPlayer
 
 local sprintHeld = false
+local crouching = false
 local lastTap = 0
 
 local humanoid: Humanoid? = nil
@@ -39,10 +43,20 @@ local fallStartY: number? = nil
 
 local MovementController = {}
 
+-- Crouch outranks sprint: you cannot run while sneaking, and letting the two stack
+-- would make crouch a free speed toggle instead of a tradeoff
 local function applyWalkSpeed()
 	local current = humanoid
-	if current then
-		current.WalkSpeed = if sprintHeld then Config.sprintSpeed else baseWalkSpeed
+	if not current then
+		return
+	end
+
+	if crouching then
+		current.WalkSpeed = Weapons.crouch.speed
+	elseif sprintHeld then
+		current.WalkSpeed = Config.sprintSpeed
+	else
+		current.WalkSpeed = baseWalkSpeed
 	end
 end
 
@@ -62,6 +76,27 @@ local function evaluateSprint()
 	else
 		track:Stop()
 	end
+end
+
+-- Written on the character so NPCs and other clients can read it without a remote
+local function setCrouching(on: boolean)
+	if crouching == on then
+		return
+	end
+	crouching = on
+
+	local character = player.Character
+	if character then
+		character:SetAttribute(Weapons.crouch.attribute, on)
+	end
+
+	-- Crouching cancels a run outright rather than queueing behind it
+	if on then
+		sprintHeld = false
+	end
+
+	applyWalkSpeed()
+	evaluateSprint()
 end
 
 local function onLanded(landedY: number)
@@ -112,6 +147,10 @@ local function setupCharacter(character: Model)
 	baseWalkSpeed = newHumanoid.WalkSpeed
 	grounded = true
 
+	-- A new body stands up; the attribute has to agree with that
+	crouching = false
+	character:SetAttribute(Weapons.crouch.attribute, false)
+
 	applyWalkSpeed()
 
 	table.insert(
@@ -153,12 +192,24 @@ end
 
 function MovementController.Start()
 	UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
-		if gameProcessed or input.KeyCode ~= SPRINT_KEY then
+		if gameProcessed then
+			return
+		end
+
+		if input.KeyCode == CROUCH_KEY then
+			setCrouching(not crouching)
+			return
+		end
+
+		if input.KeyCode ~= SPRINT_KEY then
 			return
 		end
 
 		local now = os.clock()
 		-- Only the second tap of a pair starts the run; a single press just walks
+		if crouching then
+			return
+		end
 		if now - lastTap <= DOUBLE_TAP_WINDOW then
 			sprintHeld = true
 			applyWalkSpeed()

@@ -50,6 +50,42 @@ local Weapons = {
 		},
 	},
 
+	-- Universal, like the flourish. Locomotion animations, so they override whatever
+	-- the equipped class would otherwise play.
+	crouch = {
+		attribute = "Crouching",
+		idle = "rbxassetid://74565750413787",
+		walk = "rbxassetid://99824326303518",
+		speed = 8,
+		-- Multiplies how far an NPC notices you from. Groundwork for backstabs.
+		stealth = 0.45,
+	},
+
+	-- Crouched M1. Landing it lifts BOTH fighters, which is the point: it buys a
+	-- shared window in the air rather than just launching the victim away.
+	uppercut = {
+		animation = "rbxassetid://95795987512728",
+		damage = 14,
+		riseSpeed = 38,
+		riseTime = 0.25,
+		hangTime = 1.75,
+
+		-- Forward nudge on the swing itself, before contact: closes the gap so a
+		-- crouched attacker can actually reach. Attacker only — nothing was hit yet.
+		lungeSpeed = 26,
+		lungeTime = 0.18,
+
+		-- Carried into the launch by BOTH, so they travel together instead of the
+		-- victim hanging where they stood while the attacker sails past
+		carrySpeed = 16,
+		cooldown = 2,
+		hitbox = {
+			shape = "point",
+			size = Vector3.new(6, 6, 7),
+			offset = Vector3.new(0, 0, -5),
+		},
+	},
+
 	-- A class owns only what it can do; a missing key IS the availability rule
 	classes = {
 		OneHandMedium = {
@@ -170,6 +206,7 @@ local Weapons = {
 		heavy = true,
 		aerial = true,
 		dash = true,
+		uppercut = true,
 		swingTell = true,
 		heavyTell = true,
 		aerialTell = true,
@@ -219,6 +256,8 @@ local Weapons = {
 export type Weapons = typeof(Weapons)
 
 table.freeze(Weapons.rig)
+table.freeze(Weapons.crouch)
+table.freeze(Weapons.uppercut)
 table.freeze(Weapons.dash.ground)
 table.freeze(Weapons.dash.air)
 table.freeze(Weapons.dash)
