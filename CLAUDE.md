@@ -352,9 +352,12 @@ Quem leva toma `victimStun`, mais longo que o `hitstun` comum. Com só o hitstun
 vítima responde com M1 no ar e apaga o prêmio inteiro — acertar um uppercut tem que
 comprar um turno, não um empate.
 
-Player é silenciado pelo remote `Stagger`; corpo server-owned lê o atributo
-`StunnedUntil` do character, porque não existe client pra avisar. Dois caminhos pela
-mesma razão de sempre: quem é dono do corpo é quem aplica.
+**`WeaponService.silence(character, duration)` é o único jeito de atordoar alguém.**
+Player vai pelo remote `Stagger`, corpo server-owned pelo atributo `StunnedUntil` — e
+esquecer o segundo ramo falha **em silêncio**: o NPC simplesmente segue atacando. Isso
+já aconteceu três vezes (knockback, launch, hitstun) antes de virar uma função só.
+
+Mesma raiz de sempre: quem é dono do corpo é quem aplica.
 
 Duas travas são globais de propósito:
 

@@ -54,6 +54,24 @@ local function broadcastFx(event: string, at: BasePart?, subject: Model?)
 	end
 end
 
+-- Silences a body for `duration`, by whatever route actually reaches it: a player's
+-- client through the remote, a server-owned rig through an attribute it polls.
+--
+-- One function because this choice has to be made everywhere something staggers, and
+-- forgetting the second branch is silent — the NPC simply keeps swinging.
+local function silence(character: Model?, duration: number)
+	if not character then
+		return
+	end
+
+	local victim = Players:GetPlayerFromCharacter(character)
+	if victim then
+		Net.FireClient("Stagger", victim, duration)
+	else
+		character:SetAttribute(Config.stunUntilAttribute, os.clock() + duration)
+	end
+end
+
 local function setPosture(player: Player, value: number)
 	local clamped = math.clamp(value, 0, Guard.postureMax)
 	posture[player] = clamped
@@ -287,9 +305,7 @@ function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, 
 
 		-- Only a clean hit staggers. Blocking or parrying is the reward for defending,
 		-- so neither may cost the defender their turn.
-		if victim then
-			Net.FireClient("Stagger", victim, Config.hitstun)
-		end
+		silence(defender, Config.hitstun)
 		return "hit"
 	end
 
@@ -472,17 +488,13 @@ local function onHitReport(player: Player, target: any, kind: any)
 		local victim = Players:GetPlayerFromCharacter(target.Parent)
 		if victim then
 			Net.FireClient("Launch", victim, spec.riseSpeed, spec.riseTime, spec.hangTime, heading, spec.carrySpeed)
-			-- Overrides the plain hitstun resolveHit already sent: max() on the client
-			-- means the longer of the two wins
-			Net.FireClient("Stagger", victim, spec.victimStun)
 		else
 			launchHere(targetRoot, heading, spec, target)
 		end
 
-		-- Read by anything server-owned, which has no client to be told
-		if targetCharacter then
-			targetCharacter:SetAttribute(Config.stunUntilAttribute, os.clock() + spec.victimStun)
-		end
+		-- Longer than the hitstun resolveHit already applied. On the client `max()`
+		-- keeps the longer of the two; on an NPC the later deadline simply wins.
+		silence(targetCharacter, spec.victimStun)
 
 		Net.FireClient("Launch", player, spec.riseSpeed, spec.riseTime, spec.hangTime, heading, spec.carrySpeed)
 		return
