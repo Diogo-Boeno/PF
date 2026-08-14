@@ -119,6 +119,9 @@ local sweepBox: BoxHandleAdornment? = nil
 local dashForce: LinearVelocity? = nil
 local dashToken = 0
 
+-- Per-frame correction that keeps a juggled body at the shared hang height
+local hoverConnection: RBXScriptConnection? = nil
+
 -- When the last attack ended, not started: chaining must not read as idle time
 local lastAttackEnd = 0
 
@@ -417,10 +420,18 @@ local function stopHitbox()
 	end
 end
 
+local function stopHover()
+	if hoverConnection then
+		hoverConnection:Disconnect()
+		hoverConnection = nil
+	end
+end
+
 local function stopDash()
 	if dashForce then
 		dashForce.Enabled = false
 	end
+	stopHover()
 	-- Invalidates any delayed stop still pending for an older dash
 	dashToken += 1
 end
@@ -928,26 +939,39 @@ local function playAerial()
 	play(track)
 end
 
+-- Crouched, both mouse buttons answer with the uppercut. Deliberate stance beats
+-- chain order, and asking for it with either hand beats remembering which one.
+local function uppercut(): boolean
+	local now = os.clock()
+	if guarding or stunned() or now < staggerUntil or now < dashUntil then
+		return false
+	end
+	if not crouching() or not uppercutTrack or current or now < uppercutReadyAt then
+		return false
+	end
+
+	play(uppercutTrack)
+
+	-- The move rises out of the crouch, so the stance follows the animation rather
+	-- than leaving a crouched pose fighting a standing swing
+	MovementController.uncrouch()
+
+	-- Lunge on the swing, not on the hit: it is what lets the blow reach at all
+	local root = rootPart()
+	if root then
+		local spec = Config.uppercut
+		applyImpulse(root.CFrame.LookVector, spec.lungeSpeed, nil, spec.lungeTime)
+	end
+	return true
+end
+
 local function swing()
 	local now = os.clock()
 	if guarding or stunned() or now < staggerUntil or now < dashUntil then
 		return
 	end
 
-	-- Crouched M1 is the uppercut, never a swing. Deliberate stance beats chain order.
-	if crouching() and uppercutTrack and not current and now >= uppercutReadyAt then
-		play(uppercutTrack)
-
-		-- The move rises out of the crouch, so the stance follows the animation rather
-		-- than leaving a crouched pose fighting a standing swing
-		MovementController.uncrouch()
-
-		-- Lunge on the swing, not on the hit: it is what lets the blow reach at all
-		local root = rootPart()
-		if root then
-			local spec = Config.uppercut
-			applyImpulse(root.CFrame.LookVector, spec.lungeSpeed, nil, spec.lungeTime)
-		end
+	if uppercut() then
 		return
 	end
 
@@ -1003,9 +1027,12 @@ local function dash()
 	end
 
 	-- Steering wins over facing: a dash is a movement option, and reading MoveDirection
-	-- is what lets you dash sideways or back without turning the character first
+	-- is what lets you dash sideways or back without turning the character first.
+	--
+	-- With no input at all it goes BACKWARD. A standing dash is a disengage — nobody
+	-- taps it to walk into the thing in front of them.
 	local steer = living.MoveDirection
-	local direction = if steer.Magnitude > 0 then steer.Unit else root.CFrame.LookVector
+	local direction = if steer.Magnitude > 0 then steer.Unit else -root.CFrame.LookVector
 
 	-- A dash bought with a refund cannot buy another; a fresh one arms the refund
 	refundAvailable = not fromRefund
@@ -1038,9 +1065,9 @@ end
 
 -- M2 mid-dash: kill the movement and the clip on the spot, and buy a longer read for
 -- the one hit the i-frames still owe. Spending the dash is the price of the extension.
-local function cancelDash()
+local function cancelDash(): boolean
 	if os.clock() >= dashUntil then
-		return
+		return false
 	end
 
 	stopDash()
@@ -1063,6 +1090,7 @@ local function cancelDash()
 	end
 
 	Net.FireServer("Dash", true)
+	return true
 end
 
 -- Server rejects a grip the weapon has no class for, so nothing is checked here
@@ -1153,16 +1181,16 @@ local function onParryImpact(side: any)
 	track:Play(FADE)
 end
 
--- Rise, then hover. Two phases because a single impulse would arc straight back down,
--- and the hang is the whole point: it is a window both fighters get to use.
---
--- `direction` comes from the server so attacker and victim carry the SAME heading —
--- otherwise the victim would hang where they stood while the attacker sailed past.
 -- Holds height with the constraint in Line mode along Y, which leaves X and Z to the
 -- Humanoid. A Vector constraint pins all three axes and the player cannot budge.
-local function holdHeight(duration: number)
-	local force = dashForce
-	if not force then
+--
+-- `targetY` is chased every frame rather than held wherever the rise ended. Both bodies
+-- rise on their own machine, and latency, starting velocity and ground level all differ
+-- — freezing in place strands them at different altitudes, which is precisely what makes
+-- the follow-up swing pass over or under the target.
+local function holdHeight(duration: number, targetY: number?)
+	local force, root = dashForce, rootPart()
+	if not force or not root then
 		return
 	end
 
@@ -1173,6 +1201,20 @@ local function holdHeight(duration: number)
 
 	dashToken += 1
 	local token = dashToken
+
+	stopHover()
+	if targetY then
+		local spec = Config.uppercut
+		hoverConnection = RunService.Heartbeat:Connect(function()
+			if dashToken ~= token or not root.Parent then
+				stopHover()
+				return
+			end
+			local gap = targetY - root.Position.Y
+			force.LineVelocity = math.clamp(gap * spec.hangGain, -spec.hangCorrection, spec.hangCorrection)
+		end)
+	end
+
 	task.delay(duration, function()
 		if dashToken == token then
 			stopDash()
@@ -1180,31 +1222,37 @@ local function holdHeight(duration: number)
 	end)
 end
 
-local function applyLaunch(rise: number, riseTime: number, hangTime: number, direction: Vector3, carry: number)
-	if type(rise) ~= "number" or type(riseTime) ~= "number" or type(hangTime) ~= "number" then
+-- Rise, then hover. Two phases because a single impulse would arc straight back down,
+-- and the hang is the whole point: it is a window both fighters get to use.
+--
+-- Only the heading and the hang height cross the wire, and both are the server's call:
+-- one so the pair travels together instead of the victim hanging where they stood, the
+-- other so they arrive level with each other. Every timing is the same Config on both
+-- sides — sending those too would only invite the two ends to disagree.
+local function applyLaunch(direction: any, hangY: any)
+	if typeof(direction) ~= "Vector3" or type(hangY) ~= "number" then
 		return
 	end
 
-	local heading = if typeof(direction) == "Vector3" then direction else Vector3.zero
-	local speed = if type(carry) == "number" then carry else 0
+	local spec = Config.uppercut
 
 	-- The Humanoid tries to snap back to the ground it thinks it is standing on.
 	-- Forcing Freefall is what stops it fighting the launch and yanking the body down.
 	local living = humanoid
 	if living then
 		living:ChangeState(Enum.HumanoidStateType.Freefall)
-		living.WalkSpeed = Config.uppercut.airSpeed
+		living.WalkSpeed = spec.airSpeed
 	end
 
-	juggleUntil = os.clock() + riseTime + hangTime
-	applyImpulse(heading, speed, rise, riseTime)
+	juggleUntil = os.clock() + spec.riseTime + spec.hangTime
+	applyImpulse(direction, spec.carrySpeed, spec.riseSpeed, spec.riseTime)
 
-	task.delay(riseTime, function()
+	task.delay(spec.riseTime, function()
 		-- The carry belongs to the launch, not the hang
-		holdHeight(hangTime)
+		holdHeight(spec.hangTime, hangY)
 	end)
 
-	task.delay(riseTime + hangTime, function()
+	task.delay(spec.riseTime + spec.hangTime, function()
 		local ended = humanoid
 		if ended then
 			ended.WalkSpeed = baseWalkSpeed
@@ -1354,7 +1402,10 @@ function CombatController.Start()
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			swing()
 		elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-			cancelDash()
+			-- A live dash owns the button; crouched with none, it is the uppercut
+			if not cancelDash() then
+				uppercut()
+			end
 		elseif input.KeyCode == HEAVY_KEY then
 			heavy()
 		elseif input.KeyCode == GRIP_KEY then

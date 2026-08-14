@@ -461,7 +461,7 @@ end
 -- Server-owned bodies get launched here, mirroring the client's two phases. Without
 -- this an NPC just stands there while the attacker rises, and the juggle has nobody
 -- in it.
-local function launchHere(root: BasePart, heading: Vector3, spec: any, humanoid: Humanoid?)
+local function launchHere(root: BasePart, heading: Vector3, hangY: number, spec: any, humanoid: Humanoid?)
 	-- Same reason as the client path: a Humanoid that believes it is standing will
 	-- drag the body back down against the force
 	if humanoid then
@@ -482,11 +482,31 @@ local function launchHere(root: BasePart, heading: Vector3, spec: any, humanoid:
 	-- Carry belongs to the launch, not the hang. Line mode along Y holds the height
 	-- while leaving the horizontal axes free, so a juggled body can still drift.
 	task.delay(spec.riseTime, function()
-		if force.Parent then
-			force.VelocityConstraintMode = Enum.VelocityConstraintMode.Line
-			force.LineDirection = Vector3.yAxis
-			force.LineVelocity = 0
+		if not force.Parent then
+			return
 		end
+		force.VelocityConstraintMode = Enum.VelocityConstraintMode.Line
+		force.LineDirection = Vector3.yAxis
+
+		-- Chases the shared height, exactly as the client path does, so an NPC ends up
+		-- level with whoever launched it instead of wherever its own rise stopped
+		local hover: RBXScriptConnection? = nil
+		hover = RunService.Heartbeat:Connect(function()
+			if not force.Parent or not root.Parent then
+				if hover then
+					hover:Disconnect()
+				end
+				return
+			end
+			local gap = hangY - root.Position.Y
+			force.LineVelocity = math.clamp(gap * spec.hangGain, -spec.hangCorrection, spec.hangCorrection)
+		end)
+
+		task.delay(spec.hangTime, function()
+			if hover then
+				hover:Disconnect()
+			end
+		end)
 	end)
 
 	Debris:AddItem(anchor, spec.riseTime + spec.hangTime)
@@ -577,20 +597,25 @@ local function onHitReport(player: Player, target: any, kind: any)
 		local heading = attackerRoot.CFrame.LookVector * Vector3.new(1, 0, 1)
 		heading = if heading.Magnitude > 0 then heading.Unit else Vector3.zero
 
+		-- One height for both, measured off the contact instead of off each body. Each
+		-- side rises on its own machine, so without a shared mark they settle at
+		-- different altitudes and the follow-up swing has nothing to reach.
+		local hangY = (attackerRoot.Position.Y + targetRoot.Position.Y) / 2 + spec.riseHeight
+
 		-- Whoever owns the body applies the force: the victim's client if it has one,
 		-- this server if it does not
 		local victim = Players:GetPlayerFromCharacter(target.Parent)
 		if victim then
-			Net.FireClient("Launch", victim, spec.riseSpeed, spec.riseTime, spec.hangTime, heading, spec.carrySpeed)
+			Net.FireClient("Launch", victim, heading, hangY)
 		else
-			launchHere(targetRoot, heading, spec, target)
+			launchHere(targetRoot, heading, hangY, spec, target)
 		end
 
 		-- Longer than the hitstun resolveHit already applied. On the client `max()`
 		-- keeps the longer of the two; on an NPC the later deadline simply wins.
 		silence(targetCharacter, spec.victimStun)
 
-		Net.FireClient("Launch", player, spec.riseSpeed, spec.riseTime, spec.hangTime, heading, spec.carrySpeed)
+		Net.FireClient("Launch", player, heading, hangY)
 		return
 	end
 

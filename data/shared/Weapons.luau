@@ -70,6 +70,18 @@ local Weapons = {
 		riseTime = 0.25,
 		hangTime = 1.75,
 
+		-- Where the hang settles, above the CONTACT point rather than above each body.
+		-- Holding wherever the rise happened to end left the two at different altitudes
+		-- — latency, starting velocity and ground level all differ — and a follow-up
+		-- swing from above or below the target is the whole complaint.
+		riseHeight = 9,
+		-- Per second, per stud of error. High enough to close the gap inside the hang,
+		-- low enough that it reads as floating rather than snapping.
+		hangGain = 6,
+		-- Ceiling on that correction, so a body that starts far off drifts up instead
+		-- of rocketing to the mark
+		hangCorrection = 24,
+
 		-- Forward nudge on the swing itself, before contact: closes the gap so a
 		-- crouched attacker can actually reach. Attacker only — nothing was hit yet.
 		lungeSpeed = 26,

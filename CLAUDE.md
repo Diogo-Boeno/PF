@@ -331,11 +331,15 @@ substituem o par da classe inteiro, porque agachar é postura e não jeito de se
 `crouch.stealth` multiplica a distância em que um NPC te registra. É o alicerce do
 backstab.
 
-**M1 agachado é o Uppercut**, nunca um swing — postura deliberada ganha da ordem da
-corrente. Dar o golpe **desagacha**: ele nasce subindo, e deixar a postura agachada
-faria uma pose de crouch brigar com uma animação que se levanta. Hitbox `point` igual à do flourish, e acertar **levanta os dois**: o prêmio é
-uma janela compartilhada no ar, não distância. O `Launch` vai pros dois clients, cada um
-dono da própria física.
+**Agachado, M1 e M2 respondem os dois com o Uppercut**, nunca um swing — postura
+deliberada ganha da ordem da corrente, e pedir o golpe com qualquer botão é melhor que
+lembrar qual. `M2` só não vira uppercut quando há dash rolando: ali cancelar tem
+prioridade, porque a janela de cancel é curta e a de agachar não é.
+
+Dar o golpe **desagacha**: ele nasce subindo, e deixar a postura agachada faria uma pose
+de crouch brigar com uma animação que se levanta. Hitbox `point` igual à do flourish, e
+acertar **levanta os dois**: o prêmio é uma janela compartilhada no ar, não distância. O
+`Launch` vai pros dois clients, cada um dono da própria física.
 
 Duas impulsões distintas, e a diferença importa:
 
@@ -353,6 +357,19 @@ volta — a suspensão *é* a mecânica:
 O modo `Line` é o que permite **se mover no ar**: ele prende só a altura e deixa X e Z
 com o Humanoid. `Vector` prende os três eixos e o jogador fica congelado, o que lê como
 travamento. A `WalkSpeed` cai pra `airSpeed` durante a janela — pouca deriva, não zero.
+
+**A suspensão persegue uma altura, não congela onde chegou.** O server calcula um `hangY`
+único a partir do ponto de contato (`riseHeight` acima da média dos dois) e manda pros
+dois lados; cada um corrige em `Heartbeat` com ganho e teto (`hangGain`,
+`hangCorrection`).
+
+Segurar `LineVelocity = 0` parece equivalente e não é: cada corpo sobe na **própria**
+máquina, e latência, velocidade inicial e nível do chão diferem. Congelar deixava os dois
+em alturas diferentes, e era exatamente isso que fazia o golpe seguinte passar por cima
+ou por baixo.
+
+Pelo mesmo motivo só `heading` e `hangY` cruzam a rede. Os tempos são o mesmo `Config`
+dos dois lados — mandá-los junto só criaria uma chance de discordarem.
 
 `ChangeState(Freefall)` nos dois lados: um Humanoid que se acha em pé puxa o corpo de
 volta ao chão contra a força, e era isso que teleportava de volta.
@@ -383,6 +400,11 @@ Duas travas são globais de propósito:
 Dash tem **dois perfis**: `dash.ground` é uma arrancada curta pra abrir ou fechar
 espaço, `dash.air` é uma planagem com mais sustentação e menos velocidade. Mesma tecla,
 físicas diferentes, porque no ar e no chão ele resolve problemas diferentes.
+
+A direção vem de `MoveDirection`, não de pra onde o corpo olha — é isso que deixa dashar
+de lado ou pra trás sem virar antes. **Sem nenhuma tecla de movimento, o dash vai pra
+trás**: `Q` parado é desengajar, ninguém aperta pra andar pra dentro do que está na
+frente.
 
 A animação sai da direção convertida pro **espaço do personagem**
 (`VectorToObjectSpace`), então o clipe casa com pra onde o corpo realmente vai — não com
