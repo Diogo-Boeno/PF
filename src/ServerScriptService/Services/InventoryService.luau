@@ -39,6 +39,17 @@ local function weaponSlot(lineage: any): string?
 	return nil
 end
 
+-- Slots replicate as attributes like everything else; the carried items do not fit
+-- one, so they go over a remote the client also asks for on its own Start
+local function slotOf(lineage: any, id: string): string?
+	for slot, slotted in lineage.Equipment do
+		if slotted == id then
+			return slot
+		end
+	end
+	return nil
+end
+
 local function firstFreeSlot(lineage: any): string?
 	for _, slot in Items.slots do
 		if not lineage.Equipment[slot] then
@@ -48,8 +59,6 @@ local function firstFreeSlot(lineage: any): string?
 	return nil
 end
 
--- Slots replicate as attributes like everything else; the carried items do not fit
--- one, so they go over a remote the client also asks for on its own Start
 local function publish(player: Player)
 	local lineage = DataService.lineage(player)
 
@@ -94,8 +103,9 @@ function InventoryService.remove(player: Player, id: string, amount: number?): b
 	return true
 end
 
--- Passing nil puts the weapon away. Equipping replaces whatever weapon was held and
--- takes over its slot, so the hotbar never shows two.
+-- Puts the item in hand. Passing nil puts it away. Equipping never touches the hotbar:
+-- what is held and what is slotted are different things, and reserving a slot here is
+-- what made one sword read as two.
 function InventoryService.equip(player: Player, id: string?): boolean
 	local lineage = DataService.lineage(player)
 	if not lineage then
@@ -103,6 +113,7 @@ function InventoryService.equip(player: Player, id: string?): boolean
 	end
 
 	if id == nil then
+		lineage.Held = ""
 		WeaponService.equip(player, Weapons.unarmed)
 		return true
 	end
@@ -114,14 +125,8 @@ function InventoryService.equip(player: Player, id: string?): boolean
 
 	-- Minimum attribute requirements are checked here once items declare them
 
-	-- No free slot leaves it equipped but off the hotbar, which beats refusing the equip
-	local slot = weaponSlot(lineage) or firstFreeSlot(lineage)
-	if slot then
-		lineage.Equipment[slot] = id
-	end
-
+	lineage.Held = id
 	WeaponService.equip(player, entry.weapon)
-	publish(player)
 	return true
 end
 
@@ -151,8 +156,44 @@ function InventoryService.setSlot(player: Player, slot: string, id: string?): bo
 	end
 
 	lineage.Equipment[slot] = id
+
+	-- Remembered so using the item again sends it back here instead of anywhere free
+	if type(lineage.LastSlot) ~= "table" then
+		lineage.LastSlot = {}
+	end
+	lineage.LastSlot[id] = slot
+
 	publish(player)
 	return true
+end
+
+-- Using what is in hand is what earns it a place on the bar. Until then it is just
+-- held, which is why equipping alone never takes a slot.
+function InventoryService.commitHeld(player: Player): boolean
+	local lineage = DataService.lineage(player)
+	if not lineage then
+		return false
+	end
+
+	local id = lineage.Held
+	if type(id) ~= "string" or not Items.byId[id] then
+		return false
+	end
+
+	if slotOf(lineage, id) then
+		return false
+	end
+
+	local remembered = if type(lineage.LastSlot) == "table" then lineage.LastSlot[id] else nil
+	local slot = if type(remembered) == "string" and table.find(Items.slots, remembered)
+		then remembered
+		else firstFreeSlot(lineage)
+
+	if not slot then
+		return false
+	end
+
+	return InventoryService.setSlot(player, slot, id)
 end
 
 local function throttled(player: Player): boolean
@@ -196,20 +237,21 @@ local function onSpawn(player: Player)
 		InventoryService.grant(player, STARTER_ITEM)
 	end
 
-	-- A weapon is character state, not a held tool: it comes back with the body, and
-	-- without this a rejoin restores the slot but leaves the hands empty
-	local slot = weaponSlot(lineage)
-	if slot then
-		InventoryService.equip(player, lineage.Equipment[slot])
-	else
-		publish(player)
+	-- What was in hand comes back with the body; the attribute does not survive a rejoin
+	local held = lineage.Held
+	if type(held) == "string" and held ~= "" then
+		InventoryService.equip(player, held)
 	end
+
+	publish(player)
 end
 
 function InventoryService.Start()
 	Net.On("EquipItem", onEquipRequest)
 	Net.On("SetSlot", onSlotRequest)
 	Net.On("InventoryRequest", publish)
+	-- Not throttled: it fires per attack and no-ops once the item is already slotted
+	Net.On("UseHeld", InventoryService.commitHeld)
 	Net.Register("InventorySync")
 
 	Players.PlayerAdded:Connect(function(player)

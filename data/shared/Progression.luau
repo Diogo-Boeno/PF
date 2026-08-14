@@ -1,6 +1,6 @@
 --!strict
 -- Attributes, Origins and the Sanctuary curve. Data only.
--- Keys are English because code reads them; `label` is what the UI shows.
+-- `label` is what the UI shows; the key is what code reads.
 
 local Progression = {
 	-- A lineage gets three. Losing the last one ends it and banks Memories.
@@ -22,30 +22,30 @@ local Progression = {
 
 	-- The six everyone has, in two groups
 	universal = {
-		Strength = { label = "Força", group = "Body" },
+		Strength = { label = "Strength", group = "Body" },
 		Fortitude = { label = "Fortitude", group = "Body" },
-		Swiftness = { label = "Ligeireza", group = "Body" },
-		Insight = { label = "Perspicácia", group = "Mind" },
-		Presence = { label = "Presença", group = "Mind" },
-		Willpower = { label = "Vontade", group = "Mind" },
+		Swiftness = { label = "Swiftness", group = "Body" },
+		Insight = { label = "Insight", group = "Mind" },
+		Presence = { label = "Presence", group = "Mind" },
+		Willpower = { label = "Willpower", group = "Mind" },
 	},
 
 	-- Each Origin adds three of its own. It never touches the universal six, which is
 	-- what keeps one damage formula valid for every character.
 	origins = {
 		Crawlers = {
-			label = "Rastejantes",
+			label = "Crawlers",
 			attributes = {
-				CarnalExpansion = { label = "Expansão Carnal" },
-				PredatoryHunger = { label = "Fome Predatória" },
-				SurvivalInstinct = { label = "Instinto de Sobrevivência" },
+				CarnalExpansion = { label = "Carnal Expansion" },
+				PredatoryHunger = { label = "Predatory Hunger" },
+				SurvivalInstinct = { label = "Survival Instinct" },
 			},
 		},
 		Heralds = {
-			label = "Arautos",
+			label = "Heralds",
 			attributes = {
-				BlindFervor = { label = "Fervor Cego" },
-				ChasteningPresence = { label = "Presença Castigadora" },
+				BlindFervor = { label = "Blind Fervor" },
+				ChasteningPresence = { label = "Chastening Presence" },
 				-- Was "Convicção", which only restated Willpower plus Presence. Litany
 				-- is the recited prayer that keeps a Herald intact against Resonance:
 				-- it slows how fast the Echo learns them.

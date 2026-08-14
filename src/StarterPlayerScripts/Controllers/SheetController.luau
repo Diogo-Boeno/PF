@@ -99,16 +99,16 @@ function SheetController.Start()
 		local level = useAttribute(player, Config.levelAttribute, 0)
 
 		local stats: { any } = {
-			Line("Nível", function()
+			Line("Level", function()
 				return `{level()} / {Config.maxLevel}`
 			end, -4),
-			Line("Vidas", function()
+			Line("Lives", function()
 				return `{lives()} / {Config.startingLives}`
 			end, -3),
-			Line("Essência Bruta", function()
+			Line("Raw Essence", function()
 				return tostring(essence())
 			end, -2),
-			Line("Lembranças", function()
+			Line("Memories", function()
 				return tostring(memories())
 			end, -1),
 		}
@@ -148,7 +148,7 @@ function SheetController.Start()
 			Parent = gui,
 
 			UI.Window {
-				title = "Ficha",
+				title = "Character",
 				size = UDim2.fromOffset(620, 400),
 				onClose = function()
 					open(false)
@@ -164,9 +164,9 @@ function SheetController.Start()
 							SortOrder = Enum.SortOrder.LayoutOrder,
 						},
 
-						Column("Atributos", 1, stats),
+						Column("Attributes", 1, stats),
 
-						Column("Em mãos", 2, {
+						Column("Hotbar", 2, {
 							indexes(slots, function(entry, index)
 								return Line(`Slot {entry().slot}`, function()
 									return entry().label

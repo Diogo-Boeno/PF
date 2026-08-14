@@ -58,8 +58,10 @@ local categories: { [string]: Category } = {}
 local owned: { [string]: number } = {}
 local open = false
 
-local pending: { id: string, cell: GuiButton, origin: Vector2 }? = nil
-local drag: { id: string, ghost: GuiObject }? = nil
+-- `slot` is the hotbar slot the drag came out of, nil when it came from the grid.
+-- It is what tells a drop apart: back to the bag, or onto the bar.
+local pending: { id: string, source: GuiButton, origin: Vector2, slot: string? }? = nil
+local drag: { id: string, ghost: GuiObject, slot: string? }? = nil
 
 local InventoryController = {}
 
@@ -95,22 +97,45 @@ local function cancelDrag()
 	end
 end
 
-local function startDrag(id: string, cell: GuiButton)
+-- True while the cursor is over the open panel, which is what "back to the bag" means
+local function overInventory(position: Vector2): boolean
+	local panel = inventory
+	if not panel or not open then
+		return false
+	end
+
+	local inset = GuiService:GetGuiInset()
+	local point = position - Vector2.new(inset.X, inset.Y)
+
+	for _, object in playerGui:GetGuiObjectsAtPosition(point.X, point.Y) do
+		if object:IsDescendantOf(panel) then
+			return true
+		end
+	end
+	return false
+end
+
+local function startDrag(waiting: { id: string, source: GuiButton, origin: Vector2, slot: string? })
 	local parent = dragGui
 	if not parent then
 		return
 	end
 
-	local ghost = cell:Clone() :: GuiObject
+	local source = waiting.source
+	local ghost = source:Clone() :: GuiObject
 	ghost.Name = "Ghost"
 	ghost.Active = false
 	ghost.AnchorPoint = Vector2.new(0.5, 0.5)
-	ghost.Size = UDim2.fromOffset(cell.AbsoluteSize.X, cell.AbsoluteSize.Y)
+	ghost.Size = UDim2.fromOffset(source.AbsoluteSize.X, source.AbsoluteSize.Y)
 	ghost.Position = UDim2.fromOffset(mouse().X, mouse().Y)
 	ghost.ZIndex = DRAG_ORDER
 	ghost.Parent = parent
 
-	drag = { id = id, ghost = ghost }
+	drag = { id = waiting.id, ghost = ghost, slot = waiting.slot }
+end
+
+local function isDragInput(input: InputObject): boolean
+	return input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch
 end
 
 local function equip(id: string)
@@ -137,11 +162,8 @@ local function buildCell(category: Category, entry: Items.Entry)
 
 	-- Activated is not used: a press that turns into a drag must not also equip
 	cell.InputBegan:Connect(function(input: InputObject)
-		if
-			input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch
-		then
-			pending = { id = entry.id, cell = cell, origin = mouse() }
+		if isDragInput(input) then
+			pending = { id = entry.id, source = cell, origin = mouse() }
 		end
 	end)
 
@@ -149,7 +171,21 @@ local function buildCell(category: Category, entry: Items.Entry)
 	category.count += 1
 end
 
+local function slottedIds(): { [string]: boolean }
+	local set = {}
+	for _, slot in Items.slots do
+		local id = player:GetAttribute(Items.slotAttribute .. slot)
+		if type(id) == "string" then
+			set[id] = true
+		end
+	end
+	return set
+end
+
 local function rebuild()
+	-- An item on the hotbar is out of the bag. Listing it in both reads as a duplicate.
+	local slotted = slottedIds()
+
 	for _, category in categories do
 		for _, child in category.holder:GetChildren() do
 			if child:IsA("GuiButton") then
@@ -161,7 +197,7 @@ local function rebuild()
 
 	for id, amount in owned do
 		local entry = Items.byId[id]
-		if not entry or amount <= 0 then
+		if not entry or amount <= 0 or slotted[id] then
 			continue
 		end
 
@@ -227,12 +263,12 @@ local function onInputChanged(input: InputObject)
 
 	local waiting = pending
 	if waiting and (mouse() - waiting.origin).Magnitude >= DRAG_THRESHOLD then
-		startDrag(waiting.id, waiting.cell)
+		startDrag(waiting)
 	end
 end
 
 local function onInputEnded(input: InputObject)
-	if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+	if not isDragInput(input) then
 		return
 	end
 
@@ -240,16 +276,23 @@ local function onInputEnded(input: InputObject)
 	local waiting = pending
 
 	if current then
-		local slot = slotAt(mouse())
+		local at = mouse()
+		local target = slotAt(at)
 		cancelDrag()
-		if slot then
-			Net.FireServer("SetSlot", slot, current.id)
+
+		if target and target ~= current.slot then
+			Net.FireServer("SetSlot", target, current.id)
+		elseif current.slot and not target and overInventory(at) then
+			-- Dropped back in the bag: clearing the slot is what returns it to the grid
+			Net.FireServer("SetSlot", current.slot)
 		end
 		return
 	end
 
 	cancelDrag()
-	if waiting then
+
+	-- A click on a hotbar button is the hotbar's own toggle, not ours
+	if waiting and not waiting.slot then
 		equip(waiting.id)
 	end
 end
@@ -315,6 +358,27 @@ function InventoryController.Start()
 	local hotbar = playerGui:FindFirstChild(HOTBAR_NAME)
 	hotbarHolder = hotbar and hotbar:FindFirstChild(HOLDER_NAME)
 
+	-- Dragging a slot out is the only way back to the bag; clicking it stays the
+	-- hotbar's equip toggle
+	if hotbarHolder then
+		for _, button in hotbarHolder:GetChildren() do
+			if not button:IsA("ImageButton") then
+				continue
+			end
+
+			button.InputBegan:Connect(function(input: InputObject)
+				if not isDragInput(input) then
+					return
+				end
+
+				local id = player:GetAttribute(Items.slotAttribute .. button.Name)
+				if type(id) == "string" then
+					pending = { id = id, source = button, origin = mouse(), slot = button.Name }
+				end
+			end)
+		end
+	end
+
 	dragGui = Instance.new("ScreenGui")
 	local overlay = dragGui :: ScreenGui
 	overlay.Name = DRAG_GUI_NAME
@@ -343,6 +407,11 @@ function InventoryController.Start()
 		owned = if type(inventoryTable) == "table" then inventoryTable else {}
 		rebuild()
 	end)
+
+	-- Slotting an item takes it out of the grid, so the grid follows the slots
+	for _, slot in Items.slots do
+		player:GetAttributeChangedSignal(Items.slotAttribute .. slot):Connect(rebuild)
+	end
 
 	UserInputService.InputChanged:Connect(onInputChanged)
 	UserInputService.InputEnded:Connect(onInputEnded)

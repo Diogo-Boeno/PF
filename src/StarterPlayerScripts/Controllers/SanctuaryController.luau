@@ -26,11 +26,11 @@ local RANGE = 22
 local POLL = 0.25
 
 local REASONS = {
-	distance = "Longe demais do Santuário",
-	essence = "Essência insuficiente",
-	rite = "Um Rito é necessário para passar deste ponto",
-	maxed = "Este atributo chegou ao limite",
-	unknown = "Atributo desconhecido",
+	distance = "Too far from a Sanctuary",
+	essence = "Not enough Essence",
+	rite = "A Rite is required to pass this point",
+	maxed = "This attribute is at its limit",
+	unknown = "Unknown attribute",
 }
 
 local player = Players.LocalPlayer
@@ -80,7 +80,7 @@ local function AttributeRow(key: string, label: string, order: number)
 		},
 
 		UI.Button {
-			text = "Refinar",
+			text = "Refine",
 			anchorPoint = Vector2.new(1, 0.5),
 			position = UDim2.new(1, 0, 0.5, 0),
 			size = UDim2.fromOffset(90, 26),
@@ -136,7 +136,7 @@ function SanctuaryController.Start()
 			Parent = gui,
 
 			UI.Window {
-				title = "Santuário",
+				title = "Sanctuary",
 				size = UDim2.fromOffset(460, 380),
 				position = UDim2.fromScale(0.5, 0.5),
 				children = {
@@ -155,7 +155,7 @@ function SanctuaryController.Start()
 							BackgroundTransparency = 1,
 							LayoutOrder = -2,
 							Text = function()
-								return `Essência {essence()}    ·    Lembranças {memories()}`
+								return `Essence {essence()}    ·    Memories {memories()}`
 							end,
 							TextColor3 = Theme.color.textPrimary,
 							TextSize = Theme.textSize.md,

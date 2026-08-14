@@ -736,6 +736,8 @@ local function play(track: AnimationTrack)
 	if kind and character then
 		FxController.highlight(kind, character)
 		Net.FireServer("Telegraph", kind)
+		-- Using what is in hand is what earns it a hotbar slot
+		Net.FireServer("UseHeld")
 	end
 
 	scheduleTell(track)

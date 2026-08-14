@@ -37,6 +37,10 @@ local function newLineage(): any
 		Vow = "",
 		Inventory = {},
 		Equipment = {},
+		-- What is in hand right now. Separate from Equipment: holding is not slotting.
+		Held = "",
+		-- id → last slot it occupied, so using it again sends it back where it was
+		LastSlot = {},
 		QuestProgress = {},
 		Discoveries = {},
 	}
@@ -247,7 +251,7 @@ local function onPlayerAdded(player: Player)
 	end
 
 	if profile == nil then
-		player:Kick("Não foi possível carregar seus dados. Entre novamente.")
+		player:Kick("Could not load your data. Please rejoin.")
 		return
 	end
 
@@ -257,7 +261,7 @@ local function onPlayerAdded(player: Player)
 
 	profile.OnSessionEnd:Connect(function()
 		profiles[player] = nil
-		player:Kick("Sessão encerrada — entre novamente.")
+		player:Kick("Session ended — please rejoin.")
 	end)
 
 	if player.Parent ~= Players then

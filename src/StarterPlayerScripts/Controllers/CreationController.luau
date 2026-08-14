@@ -70,7 +70,7 @@ local function OriginCard(key: string, origin: any, onPick: (string) -> ())
 		},
 
 		UI.Button {
-			text = "Escolher",
+			text = "Choose",
 			anchorPoint = Vector2.new(0.5, 1),
 			position = UDim2.fromScale(0.5, 1),
 			size = UDim2.new(1, 0, 0, 32),
@@ -129,7 +129,7 @@ function CreationController.Start()
 			},
 
 			UI.Window {
-				title = "Nova Peregrinação",
+				title = "New Pilgrimage",
 				size = UDim2.fromOffset(560, 320),
 				children = {
 					create "Frame" {

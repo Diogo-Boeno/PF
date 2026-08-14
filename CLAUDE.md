@@ -726,17 +726,32 @@ primeira vez que um deles é reordenado.
 |---|---|---|
 | posse | `lineage.Inventory` | id → quantidade |
 | hotbar | `lineage.Equipment` | slot → id |
+| na mão | `lineage.Held` | id, ou `""` |
 
-Os dois persistem por ProfileStore. A hotbar replica por atributo como sempre; a posse
+Os três persistem por ProfileStore. A hotbar replica por atributo como sempre; a posse
 não cabe num atributo e vai por `Net "InventorySync"`, que o client também pede no
 próprio `Start` (`InventoryRequest`).
 
-**Só existe uma arma equipada.** Equipar outra a coloca **no slot onde a atual estava** —
-nunca há duas armas na hotbar. Sem nenhuma arma slotada, ela cai no primeiro slot livre;
-sem slot livre, fica equipada e fora da hotbar, porque recusar o equip seria pior.
+**Estar na mão e estar na hotbar são coisas diferentes.** Equipar escreve `Held` e
+**nunca toca no `Equipment`** — reservar slot no equip foi o que fez uma espada só
+aparecer como duas.
 
-A arma volta com o corpo: no spawn o server reequipa o que estiver no slot de arma. Sem
-isso, reconectar restaura o slot e deixa as mãos vazias.
+O item ganha o slot **usando**, não equipando: o `CombatController` dispara `UseHeld` no
+primeiro frame de todo ataque e o server grava o que está na mão no **último slot que
+aquele item ocupou** (`lineage.LastSlot`), ou no primeiro livre se ele nunca teve um.
+Já slotado, o remote não faz nada — por isso ele não é throttled.
+
+Isso vale pra qualquer ataque, não só M1: heavy, aerial e uppercut também são uso.
+
+Arrasto (`SetSlot`) continua sendo o jeito de escolher o slot à mão, e é ele que
+alimenta o `LastSlot`.
+
+**Item que está num slot some do grid.** O `InventoryController` monta o conjunto de ids
+slotados a partir dos atributos e pula esses no `rebuild`; listar nos dois lugares lê
+como duplicata, não como atalho.
+
+O que estava na mão volta com o corpo: no spawn o server reequipa `Held`. O atributo
+`Weapon` não sobrevive ao rejoin — o perfil sim.
 
 `WeaponService.equip` é server-only agora — **não existe mais o remote `EquipWeapon`**.
 Todo equip entra por `EquipItem`, que confere posse antes. O grant de teste da Sword
@@ -767,13 +782,40 @@ O cell sai de `ReplicatedStorage.Components.CellButton`, clonado por item, e é 
 igual ao botão da hotbar — `CellButton > Stroke > ContentName`. Por isso os dois
 controllers acham o label por busca recursiva pelo nome, não por caminho.
 
-`Tab` abre, esconde o `Stats` e desliga o Backpack da Roblox. O `Enabled` é **forçado
-`false` no Start** porque o painel é autorado aberto no Studio. A Ficha saiu do `Tab` e
-foi pro `P`.
+`Tab` abre e esconde o `Stats`. O `Enabled` é **forçado `false` no Start** porque o painel
+é autorado aberto no Studio. A Ficha saiu do `Tab` e foi pro `P`.
+
+Duas coisas medidas sobre o `Tab`, e as duas custaram uma rodada de Studio:
+
+- **`Tab` é o atalho da PlayerList.** O CoreGui o consome acima de qualquer binding do
+  jogo, então `UserInputService` só o via como `gameProcessed`. Hotkey de CoreGui não se
+  rebinda: `SetCoreGuiEnabled(PlayerList, false)` é o único jeito, e o preço é não haver
+  lista de jogadores até existir uma nossa. O Backpack sai junto, por outro motivo — o
+  nosso o substitui.
+- O bind é `ContextActionService`, não `UserInputService`, e devolve `Sink`. Com um
+  `GetFocusedTextBox()` na frente, senão `Tab` sinkado globalmente rouba a tecla de
+  qualquer campo de texto.
 
 Clique equipa; arrastar até um botão da hotbar chama `SetSlot`. O cell **não usa
 `Activated`**: um clique que virou arrasto não pode também equipar, então press e release
 são tratados à mão, com `DRAG_THRESHOLD` decidindo qual dos dois foi.
+
+**O arrasto vai nos dois sentidos**, e é o `slot` do drag que os distingue:
+
+| origem | soltou onde | o quê |
+|---|---|---|
+| grid | botão da hotbar | `SetSlot(slot, id)` |
+| hotbar | sobre o painel aberto | `SetSlot(slot)` — volta pro grid |
+| hotbar | outro botão da hotbar | `SetSlot(alvo, id)` |
+| qualquer | fora dos dois | nada |
+
+Botão da hotbar também é arrastável, mas **clique nele continua sendo o toggle do
+`HotbarController`** — o `InventoryController` só equipa no clique quando o arrasto
+nasceu no grid, senão os dois responderiam o mesmo clique.
+
+Arrastar de slot pra slot funciona hoje porque `setSlot` tira a arma do slot anterior.
+Item **não-arma** ainda não existe, e quando existir esse caminho precisa mandar a origem
+junto — do contrário ele duplica.
 
 O fantasma do arrasto vive num ScreenGui próprio com `IgnoreGuiInset = true`, porque ele
 segue `GetMouseLocation()` cru. O acerto do alvo é o contrário: `GetGuiObjectsAtPosition`
@@ -867,6 +909,8 @@ sobrevive ao rejoin — atributo de Player é canal de replicação, não armaze
 
 ## Regras absolutas
 
+- **Todo texto que o jogador lê é em inglês** — UI, nome de item, `label`, mensagem de
+  erro, `Kick`. Só a conversa com o Cosmo é em PT-BR; o jogo, nunca
 - Nunca Roact — sempre Vide
 - Nunca `Color3` hardcoded em componente — sempre `Theme`
 - Nunca RemoteEvent direto — sempre via `Net`
