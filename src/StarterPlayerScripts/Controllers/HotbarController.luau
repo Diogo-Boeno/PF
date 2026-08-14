@@ -4,8 +4,9 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 
-local Config = require(ReplicatedStorage.Data.Weapons)
-local WeaponController = require(script.Parent.WeaponController)
+local Net = require(ReplicatedStorage.Shared.Framework.Net)
+local Items = require(ReplicatedStorage.Data.Items)
+local Weapons = require(ReplicatedStorage.Data.Weapons)
 
 local UI_NAME = "HotbarUI"
 local HOLDER_NAME = "Holder"
@@ -33,7 +34,7 @@ local labels: { [string]: TextLabel } = {}
 local HotbarController = {}
 
 local function attributeFor(slot: string): string
-	return Config.slotAttribute .. slot
+	return Items.slotAttribute .. slot
 end
 
 -- "0" closes the keyboard row, so it sorts past 9
@@ -45,31 +46,28 @@ local function layoutOrderFor(slot: string): number
 	return if n == 0 then 10 else n
 end
 
-local function contentOf(slot: string): string
+local function entryOf(slot: string): Items.Entry?
 	local id = player:GetAttribute(attributeFor(slot))
-	if type(id) ~= "number" then
-		return ""
-	end
-	local entry = Config.byId[id]
-	return if entry then entry.model else ""
+	return if type(id) == "string" then Items.byId[id] else nil
 end
 
 local function paint(slot: string)
 	local label = labels[slot]
 	if label then
-		label.Text = contentOf(slot)
+		local entry = entryOf(slot)
+		label.Text = if entry then entry.label else ""
 	end
 end
 
 local function activate(slot: string)
-	local id = player:GetAttribute(attributeFor(slot))
-	if type(id) ~= "number" or not Config.byId[id] then
+	local entry = entryOf(slot)
+	if not entry or not entry.weapon then
 		return
 	end
 
-	-- Hitting the equipped slot again puts it away
-	local equipped = player:GetAttribute(Config.attribute)
-	WeaponController.request(if equipped == id then Config.unarmed else id)
+	-- Hitting the equipped slot again puts it away. The slot keeps the item either way.
+	local equipped = player:GetAttribute(Weapons.attribute)
+	Net.FireServer("EquipItem", if equipped == entry.weapon then nil else entry.id)
 end
 
 function HotbarController.Start()
@@ -98,7 +96,8 @@ function HotbarController.Start()
 			continue
 		end
 
-		local label = button:FindFirstChild(LABEL_NAME)
+		-- Recursive: the label lives under Stroke now, and has moved once already
+		local label = button:FindFirstChild(LABEL_NAME, true)
 		if not label or not label:IsA("TextLabel") then
 			warn(`[HotbarController] slot "{button.Name}" has no {LABEL_NAME}`)
 			continue

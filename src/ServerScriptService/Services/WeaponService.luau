@@ -11,11 +11,6 @@ local HealthService = require(script.Parent.HealthService)
 
 local Guard = Config.guard
 
--- Test grant, delete once inventory exists
-local STARTER_SLOT = "1"
-local STARTER_WEAPON = 1
-
-local lastRequest: { [Player]: number } = {}
 local lastSwingFx: { [Player]: { [string]: number } } = {}
 
 -- Weak keys so a dead target's entry goes away without a sweep
@@ -223,17 +218,9 @@ local function parriedSide(class: any?): string?
 	return if set.left then "left" else "right"
 end
 
-local function grantStarter(player: Player)
-	player:SetAttribute(Config.slotAttribute .. STARTER_SLOT, STARTER_WEAPON)
-end
-
-local function onEquipRequest(player: Player, requestedId: any)
-	local now = os.clock()
-	if now - (lastRequest[player] or 0) < Config.requestCooldown then
-		return
-	end
-	lastRequest[player] = now
-
+-- No client reaches this directly: InventoryService checks the player actually carries
+-- the weapon before asking. An id outside the catalog reads as unarmed.
+function WeaponService.equip(player: Player, requestedId: any)
 	local id = Config.unarmed
 	if type(requestedId) == "number" and Config.byId[requestedId] ~= nil then
 		id = requestedId
@@ -642,7 +629,6 @@ local function onHitReport(player: Player, target: any, kind: any)
 end
 
 function WeaponService.Start()
-	Net.On("EquipWeapon", onEquipRequest)
 	Net.On("WeaponHit", onHitReport)
 	Net.On("SetGrip", onGripRequest)
 	Net.On("SetGuard", onGuardRequest)
@@ -657,13 +643,7 @@ function WeaponService.Start()
 	Net.Register("Stagger")
 	Net.Register("Fx")
 
-	Players.PlayerAdded:Connect(grantStarter)
-	for _, player in Players:GetPlayers() do
-		grantStarter(player)
-	end
-
 	Players.PlayerRemoving:Connect(function(player)
-		lastRequest[player] = nil
 		lastSwingFx[player] = nil
 		lastHit[player] = nil
 		guardStart[player] = nil

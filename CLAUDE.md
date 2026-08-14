@@ -1,11 +1,13 @@
 # pf
 
 **ECHOES BEYOND** — MMORPG de ação dark fantasy do Cosmo, solo, Roblox.
-GDD em `gdd.md` e `gddMelhor.md`; `prompt.md` é um rascunho anterior e está desatualizado.
-Nenhum dos três é backlog — não implemente nada de lá sem pedido pelo nome.
+GDD em `gdd.md`, `gddMelhor.md` e `gdd2.md`. Nenhum dos três é backlog — não implemente
+nada de lá sem pedido pelo nome. `prompt.md` **não é documento do jogo**: é rascunho onde
+o Cosmo elabora o próximo prompt, e o conteúdo troca sem aviso.
 
 Estado: **base técnica**. Existe framework, kit de UI, rig custom animado, combate
-(combo, guarda, parry, postura) e NPC de treino. Não existe progressão nem persistência.
+(combo, guarda, parry, postura), NPC de treino, persistência por ProfileStore e o
+esqueleto de progressão (atributos, linhagem, vidas, Santuário) e de inventário.
 
 Referência declarada: Deepwoken — na **filosofia** (lore descoberta, consequência,
 morte com peso), não na cópia. A identidade é Echo, Ressonância, Véu, Primeiros,
@@ -22,19 +24,16 @@ Peregrinação e Cativeiro. Ver "Mundo e progressão".
 | UI | Vide 0.4 — **nunca Roact** |
 | UI dev | UI Labs 2.4, stories em `ReplicatedStorage/Stories/` |
 | ECS | Jecs 0.11 — só para progressão, Estigmas e Echoes |
-| Persistência | ProfileStore 0.1 — pré-requisito da progressão |
+| Persistência | ProfileStore 0.1 — `DataService`, perfil por jogador |
 
 **Só `vide` é usado hoje.** `ripple`, `charm`, `rng` e `quickzone` estão no `wally.toml`
 sem um único `require` em `src/`. `blink` e `asphalt` estão pinados no Aftman e não têm
 arquivo de config no repo. Antes de usar qualquer um deles, pergunte — estar instalado
 não é decisão tomada.
 
-Duas exceções, decididas e ainda não escritas: **`jecs`** é o ECS do projeto e
-**`profilestore`** é a persistência. Instalados de propósito, sem uso ainda.
-
-`profilestore` presente **não significa que há persistência**. Ainda não há — mas está
-decidido que ela virá por `profilestore`, e ela é pré-requisito da progressão, não um
-extra. Nada de Santuário antes disso.
+Duas exceções. **`profilestore`** já é a persistência e roda em `DataService`.
+**`jecs`** é o ECS do projeto, instalado de propósito e ainda sem uso — Estigmas e
+Echoes são o destino dele.
 
 **RaycastHitboxV4** não vem do Wally: o `lib/` de
 [Swordphin/raycastHitboxRbxl](https://github.com/Swordphin/raycastHitboxRbxl) está
@@ -120,8 +119,9 @@ Wally nem em `src/`. Vive no place file e **não é versionado**: clone limpo n�
 
 ## Mundo e progressão
 
-**Ainda não implementado.** O GDD vive em `prompt.md` e é leitura, não backlog — não
-execute nada de lá sem o Cosmo pedir pelo nome.
+O esqueleto existe (perfil, linhagem, vidas, atributos, Santuário); Ritos, Estigmas,
+Echoes e Cativeiro não. O GDD vive em `gdd2.md` e é leitura, não backlog — não execute
+nada de lá sem o Cosmo pedir pelo nome.
 
 Referência declarada: **Deepwoken**, com desvios próprios. O maior deles é de
 vocabulário e não é negociável:
@@ -204,8 +204,7 @@ não foi decidido.
 
 `LifeService` desliga `CharacterAutoLoads` e é o server que decide quando existe corpo.
 Sem linhagem, ninguém spawna — é isso que faz a tela de criação não precisar de flag
-própria. Ele contém um **grant de teste** (`AUTO_ORIGIN`) que dá a primeira Origem no
-join; some quando a tela de criação puder chamar `CreateLineage`.
+própria. A linhagem nasce pelo remote `CreateLineage`, que a tela de criação chama.
 
 ### Santuário
 
@@ -687,29 +686,105 @@ impacto: aquela animação é de quem **aparou**, e o NPC não apara.
 `HotbarUI.Holder` no StarterGui, montada à mão: 10 `ImageButton` de nome `1`..`9`, `0` —
 **nome do botão é a tecla**, na ordem física do teclado, não na ordem do grid.
 
-Cada botão tem `CellNum` (serial fixo, **nunca escreva nele**) e `ContentName`, que o
-`HotbarController` preenche com o nome do model da arma.
+Cada botão tem `Stroke` (ImageLabel) e, **dentro dele**, `CellNum` (serial fixo, **nunca
+escreva nele**) e `ContentName`, que o `HotbarController` preenche com o `label` do item.
+O controller acha o `ContentName` por busca recursiva de propósito: ele já mudou de
+lugar uma vez, e o nome é estável enquanto a hierarquia não é.
 
 O controller também escreve o `LayoutOrder` de cada botão e força
 `SortOrder = LayoutOrder` no grid. Sem isso os dez empatam em `0` e o grid cai na ordem
 dos filhos, que **difere entre edit mode e runtime** — o `0` pulava pra frente do `1` no
 Play. Não ordene a hotbar arrastando no Explorer; não sobrevive à replicação.
 
-O inventário é um atributo por slot: `Slot1`..`Slot9`, `Slot0`, valor = id do catálogo.
-Slot sem atributo é slot vazio. A UI decide quantos slots existem — o controller varre
-os filhos do `Holder`, não uma lista no código.
+A hotbar é um atributo por slot: `Slot1`..`Slot9`, `Slot0`, valor = **id de item**
+(string), não id de arma. Slot sem atributo é slot vazio. A UI decide quantos slots
+existem — o controller varre os filhos do `Holder`, não uma lista no código.
 
-Tecla ou clique no slot já equipado **desequipa** (pede `unarmed`). O toggle é decidido
-no client; o server valida igual, então id fora do catálogo também cai em desarmado.
+Tecla ou clique no slot já equipado **desequipa**, e o item **fica no slot**: desequipar
+é estado da arma, não da hotbar.
 
-`WeaponService` concede uma Sword no `Slot1` ao entrar. É **grant de teste**, marcado no
-arquivo, some quando houver inventário de verdade.
+## Inventário
+
+`data/shared/Items/` é o catálogo, **um módulo por categoria**. O `init.luau` varre os
+próprios filhos e carimba `id` e `category` em cada entrada, então categoria nunca é
+escrita à mão e um arquivo só cresce com a sua categoria.
+
+```lua
+-- Items/Weapons.luau
+sword = { label = "Espada", weapon = 1 },
+```
+
+`weapon` indexa `Weapons.byId`. **Sem `weapon` o item não é equipável** — mesma regra do
+resto do projeto: a chave ausente *é* a regra.
+
+Id de item é **string**, não índice. Índice numérico repartido em nove arquivos quebra na
+primeira vez que um deles é reordenado.
+
+`InventoryService` é o dono. Posse e hotbar são coisas separadas no perfil:
+
+| | onde | o quê |
+|---|---|---|
+| posse | `lineage.Inventory` | id → quantidade |
+| hotbar | `lineage.Equipment` | slot → id |
+
+Os dois persistem por ProfileStore. A hotbar replica por atributo como sempre; a posse
+não cabe num atributo e vai por `Net "InventorySync"`, que o client também pede no
+próprio `Start` (`InventoryRequest`).
+
+**Só existe uma arma equipada.** Equipar outra a coloca **no slot onde a atual estava** —
+nunca há duas armas na hotbar. Sem nenhuma arma slotada, ela cai no primeiro slot livre;
+sem slot livre, fica equipada e fora da hotbar, porque recusar o equip seria pior.
+
+A arma volta com o corpo: no spawn o server reequipa o que estiver no slot de arma. Sem
+isso, reconectar restaura o slot e deixa as mãos vazias.
+
+`WeaponService.equip` é server-only agora — **não existe mais o remote `EquipWeapon`**.
+Todo equip entra por `EquipItem`, que confere posse antes. O grant de teste da Sword
+mudou de `WeaponService` para `InventoryService.STARTER_ITEM`.
+
+### UI do inventário
+
+`Inventory` (ScreenGui) é montada à mão no Studio, e o `InventoryController` só a
+preenche — nunca cria hierarquia:
+
+```
+Inventory (ScreenGui)
+└── Background
+    ├── Stroke
+    └── Container (ScrollingFrame)
+        └── <Categoria>            <-- nome = nome do módulo em Data/Items
+            ├── Frame              <-- os cells, UIListLayout
+            └── Category
+                ├── Bar
+                ├── Name
+                └── Quantity       <-- o controller escreve a contagem
+```
+
+**A UI decide quais categorias existem**: o controller varre os filhos do `Container`, e
+categoria sem módulo correspondente emite warn em vez de sumir calada.
+
+O cell sai de `ReplicatedStorage.Components.CellButton`, clonado por item, e é montado
+igual ao botão da hotbar — `CellButton > Stroke > ContentName`. Por isso os dois
+controllers acham o label por busca recursiva pelo nome, não por caminho.
+
+`Tab` abre, esconde o `Stats` e desliga o Backpack da Roblox. O `Enabled` é **forçado
+`false` no Start** porque o painel é autorado aberto no Studio. A Ficha saiu do `Tab` e
+foi pro `P`.
+
+Clique equipa; arrastar até um botão da hotbar chama `SetSlot`. O cell **não usa
+`Activated`**: um clique que virou arrasto não pode também equipar, então press e release
+são tratados à mão, com `DRAG_THRESHOLD` decidindo qual dos dois foi.
+
+O fantasma do arrasto vive num ScreenGui próprio com `IgnoreGuiInset = true`, porque ele
+segue `GetMouseLocation()` cru. O acerto do alvo é o contrário: `GetGuiObjectsAtPosition`
+fala em espaço **sem** o inset, então ali o `GetGuiInset()` é subtraído.
 
 ## Estrutura
 
 ```
 data/
-├── shared/           <-- ReplicatedStorage.Data (Movement, Weapons)
+├── shared/           <-- ReplicatedStorage.Data (Movement, Weapons, Progression, Fx)
+│   └── Items/        <-- catálogo, um módulo por categoria
 └── server/           <-- ServerStorage.Data (vazio)
 src/
 ├── ReplicatedFirst/Loading.client.luau
@@ -726,7 +801,7 @@ src/
 ├── StarterCharacterScripts/Animate.client.luau
 └── StarterPlayerScripts/
     ├── Bootstrap.client.luau
-    └── Controllers/       <-- Movement, SmartBone, Weapon, Hotbar, Combat
+    └── Controllers/       <-- Movement, SmartBone, Weapon, Hotbar, Inventory, Combat
 ```
 
 Padrão canônico pra copiar: `UI/Common/Button.luau` (componente Vide) ou
@@ -750,7 +825,7 @@ dirigidas por Controller que lê a hierarquia pronta — vivem no place file, n�
 e não devem ser reconstruídas em Vide sem pedir.
 
 Telas de progressão são Vide, montadas em `Vide.root` dentro do Controller:
-`CreationController` (criação), `SanctuaryController` (compra), `SheetController` (Tab).
+`CreationController` (criação), `SanctuaryController` (compra), `SheetController` (`P`).
 São **MVP** — funcionais, não finalizadas.
 
 `useAttribute(instance, name, default)` liga atributo replicado a uma source Vide. Como
@@ -768,7 +843,8 @@ tela de criação pisca na cara de quem só reconectou.
 | `Vide.source()` | UI local reativa em Controllers |
 | `Framework/State` | key-value entre módulos do mesmo lado (raro) |
 
-Persistência entre sessões: **não implementada**.
+Persistência entre sessões: `DataService`, por ProfileStore. Só o que está no perfil
+sobrevive ao rejoin — atributo de Player é canal de replicação, não armazenamento.
 
 ## Convenções
 

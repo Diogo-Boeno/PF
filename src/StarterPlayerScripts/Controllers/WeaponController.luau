@@ -3,7 +3,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Net = require(ReplicatedStorage.Shared.Framework.Net)
 local Config = require(ReplicatedStorage.Data.Weapons)
 
 local HAND_TIMEOUT = 10
@@ -162,10 +161,6 @@ local function loadTemplates()
 			gripCFrame = gripAttachment.CFrame,
 		}
 	end
-end
-
-function WeaponController.request(id: number)
-	Net.FireServer("EquipWeapon", id)
 end
 
 function WeaponController.mountedFor(target: Player): Model?

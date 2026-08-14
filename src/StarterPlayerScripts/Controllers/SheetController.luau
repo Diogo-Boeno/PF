@@ -1,5 +1,5 @@
 --!strict
--- Character sheet on Tab: stats on the left, carried weapons on the right.
+-- Character sheet: stats on the left, hotbar slots on the right.
 -- Read-only — spending happens at a Sanctuary, never from a menu.
 
 local Players = game:GetService("Players")
@@ -10,7 +10,7 @@ local Packages = ReplicatedStorage.Packages
 local Vide = require(Packages.vide)
 
 local Config = require(ReplicatedStorage.Data.Progression)
-local Weapons = require(ReplicatedStorage.Data.Weapons)
+local Items = require(ReplicatedStorage.Data.Items)
 local UI = require(ReplicatedStorage.Shared.UI.Common)
 local useAttribute = require(ReplicatedStorage.Shared.UI.Common.useAttribute)
 
@@ -19,7 +19,8 @@ local create = Vide.create
 local source = Vide.source
 local indexes = Vide.indexes
 
-local SHEET_KEY = Enum.KeyCode.Tab
+-- Tab belongs to the inventory; the sheet moved off it
+local SHEET_KEY = Enum.KeyCode.P
 
 local player = Players.LocalPlayer
 
@@ -124,15 +125,15 @@ function SheetController.Start()
 			)
 		end
 
-		-- Inventory is still just the hotbar slots, so the sheet reads those
+		-- The full inventory has its own screen; the sheet shows what is at hand
 		local slots = source({})
 		local function rebuildSlots()
 			local list = {}
-			for _, name in { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" } do
-				local id = player:GetAttribute(Weapons.slotAttribute .. name)
-				local entry = if type(id) == "number" then Weapons.byId[id] else nil
+			for _, name in Items.slots do
+				local id = player:GetAttribute(Items.slotAttribute .. name)
+				local entry = if type(id) == "string" then Items.byId[id] else nil
 				if entry then
-					table.insert(list, { slot = name, model = entry.model })
+					table.insert(list, { slot = name, label = entry.label })
 				end
 			end
 			slots(list)
@@ -165,10 +166,10 @@ function SheetController.Start()
 
 						Column("Atributos", 1, stats),
 
-						Column("Inventário", 2, {
+						Column("Em mãos", 2, {
 							indexes(slots, function(entry, index)
 								return Line(`Slot {entry().slot}`, function()
-									return entry().model
+									return entry().label
 								end, index)
 							end),
 						}),

@@ -5,9 +5,6 @@ local Weapons = {
 	unarmed = 0,
 	folder = "Weapons",
 
-	-- Prefix + button name: Slot1..Slot9, Slot0
-	slotAttribute = "Slot",
-
 	-- Animation poses key off part name; shared swings need one
 	rootName = "Handle",
 
@@ -233,9 +230,6 @@ local Weapons = {
 		-- parry buys its frames. Still one hit.
 		cancelIframes = 0.22,
 	},
-
-	-- Every accepted equip replicates to every client
-	requestCooldown = 0.25,
 
 	-- The only Fx a client may ask for, so the set is closed and rate limited
 	swingFx = {
