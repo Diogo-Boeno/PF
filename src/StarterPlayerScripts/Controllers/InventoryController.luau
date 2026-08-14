@@ -13,6 +13,7 @@ local StarterGui = game:GetService("StarterGui")
 local UserInputService = game:GetService("UserInputService")
 
 local Net = require(ReplicatedStorage.Shared.Framework.Net)
+local State = require(ReplicatedStorage.Shared.Framework.State)
 local Items = require(ReplicatedStorage.Data.Items)
 
 local TOGGLE_KEY = Enum.KeyCode.Tab
@@ -243,6 +244,9 @@ local function setOpen(value: boolean)
 	open = value
 	gui.Enabled = value
 	setStatsVisible(not value)
+
+	-- The hotbar reveals its empty slots off this, so they only exist as drop targets
+	State.Set(Items.openState, value)
 
 	if not value then
 		cancelDrag()

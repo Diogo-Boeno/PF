@@ -703,6 +703,28 @@ existem — o controller varre os filhos do `Holder`, não uma lista no código.
 Tecla ou clique no slot já equipado **desequipa**, e o item **fica no slot**: desequipar
 é estado da arma, não da hotbar.
 
+### Slot vazio
+
+Slot sem item some com o inventário fechado e reaparece como `SimpleFrameredWindow`
+quando ele abre — só existe enquanto há o que soltar dentro. O placeholder é um clone do
+componente, parenteado no próprio botão e criado uma vez no `Start`.
+
+Slot vazio fica `Visible = false`, e é justamente disso que sai a centralização:
+`UIGridLayout` pula filho invisível, então a fileira fecha o buraco e o controller força
+`HorizontalAlignment = Center` pra sobra reencontrar o meio. Um jogador com 1 e 8 vê dois
+slots juntos e centrados.
+
+**Isso não move a tecla.** O slot é o **nome do botão**, não a posição no grid — o 8
+responde ao `8` onde quer que ele caia na tela.
+
+A transparência do botão é assunto separado do `Visible`: com o inventário aberto o slot
+vazio precisa existir na fileira, mas quem aparece é o placeholder. Então o `Stroke` sai
+e as transparências vão a 1, voltando ao valor **autorado** quando o slot enche.
+
+Quem manda nisso é `Framework/State`, chave `Items.openState`: o `InventoryController`
+escreve no `setOpen`, o `HotbarController` observa. É o caso raro que justifica o State —
+dois controllers do mesmo lado, sem nada pra replicar.
+
 ## Inventário
 
 `data/shared/Items/` é o catálogo, **um módulo por categoria**. O `init.luau` varre os

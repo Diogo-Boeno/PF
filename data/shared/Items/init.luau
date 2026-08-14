@@ -19,6 +19,9 @@ local Items = {
 	-- Keyboard row order, matching the hotbar button names
 	slots = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
 
+	-- Framework/State key. The hotbar shows its empty slots only while the bag is open.
+	openState = "InventoryOpen",
+
 	byId = {} :: { [string]: Entry },
 	byCategory = {} :: { [string]: { [string]: Entry } },
 }
