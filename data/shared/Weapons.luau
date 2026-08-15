@@ -114,7 +114,13 @@ local Weapons = {
 	--
 	-- Only what actually varies lives here; everything else stays on the class.
 	weights = {
+		-- Hitstun belongs to the weight, not the move: a heavy weapon buys a longer turn.
+		-- Spamming M1 with one used to lose the trade because the victim recovered before
+		-- the swing cycle came round again.
+		Light = { hitstun = 0.6 },
+		Medium = { hitstun = 0.9 },
 		Heavy = {
+			hitstun = 1.2,
 			-- Ignores the weapon's swing speed by design: a slow weapon still uppercuts
 			-- fast, and the damage scaling is what pays for it
 			uppercut = { animation = "rbxassetid://125721624070954" },
@@ -290,9 +296,13 @@ local Weapons = {
 	-- more: higher reads as a launch, which is not what a hit is.
 	knockbackLift = 10,
 
+	-- Fallback for a class with no weight. The real numbers live in `weights`, because
+	-- how long a hit buys is a property of what hit you.
+	--
 	-- Taking a real hit cancels whatever you were swinging and locks attacks. Without
 	-- it, trading M1 forever is the optimal play and nothing punishes getting hit.
-	hitstun = 0.45,
+	-- Parrying stays available throughout; attacking does not.
+	hitstun = 0.9,
 
 	-- Dash goes where you are steering, falling back to facing when standing still.
 	-- `animation` empty until one is authored; the movement works without it.

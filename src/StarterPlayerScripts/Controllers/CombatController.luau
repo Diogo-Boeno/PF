@@ -141,8 +141,13 @@ local dashUntil = 0
 local refundAvailable = false
 local fromRefund = false
 
--- The one lock that is meant to stop everything: being parried is a stagger
+-- Blocks attacking and dashing. Parrying stays open: a hit buys the attacker a turn,
+-- not a free one — reading the follow-up is the way out.
 local staggerUntil = 0
+
+-- The stagger that takes the guard too. Only being parried does this, and that is the
+-- whole reward for landing one.
+local guardLockUntil = 0
 
 -- Suspended by an uppercut. Being up here is not the same as jumping: the aerial is
 -- off and the normal chain answers M1, so the window is a fight and not a dive.
@@ -605,6 +610,7 @@ local function clearTracks()
 	heavyReadyAt = 0
 	aerialReadyAt = 0
 	staggerUntil = 0
+	guardLockUntil = 0
 	dashUntil = 0
 	stopDash()
 	setAttackLock(false)
@@ -1200,9 +1206,10 @@ end
 
 startGuard = function()
 	local block = blockTrack
-	-- Attack cooldowns do not gate the guard; only a stagger does. `current` does:
-	-- the hold is remembered and retried when the attack ends.
-	if guarding or current or not block or stunned() or os.clock() < staggerUntil then
+	-- Attack cooldowns do not gate the guard, and neither does plain hitstun: parrying
+	-- out of a hit is the intended escape. Only being parried closes it. `current`
+	-- does gate it — the hold is remembered and retried when the attack ends.
+	if guarding or current or not block or stunned() or os.clock() < guardLockUntil then
 		return
 	end
 
@@ -1250,12 +1257,16 @@ end
 
 -- Taking a hit interrupts. Stopping the track fires onAttackEnded, which clears
 -- `current` and shuts the hitbox, so a cancelled swing cannot still connect.
-local function onStagger(duration: any)
+local function onStagger(duration: any, lockGuard: any)
 	if type(duration) ~= "number" then
 		return
 	end
 
-	staggerUntil = math.max(staggerUntil, os.clock() + duration)
+	local until_ = os.clock() + duration
+	staggerUntil = math.max(staggerUntil, until_)
+	if lockGuard == true then
+		guardLockUntil = math.max(guardLockUntil, until_)
+	end
 	queued = false
 
 	local active = current

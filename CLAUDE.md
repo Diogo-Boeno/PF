@@ -308,6 +308,15 @@ exatamente o que aconteceu no primeiro greataxe.
 nomeando o asset. Sem isso o erro é mudo: o golpe só "parece errado" e nenhum número no
 código tem culpa.
 
+### Hitstun
+
+`hitstun` mora na **camada de peso**, porque quanto tempo um golpe compra é propriedade
+de quem bateu, não do movimento: Light 0.6s, Medium 0.9s, Heavy 1.2s. `Config.hitstun`
+é só o fallback de classe sem peso.
+
+Era um número global de 0.45s, e é por isso que spammar M1 com arma pesada perdia a
+troca — o ciclo do swing era mais longo que o stun que ele mesmo aplicava.
+
 Quem obedece e quem não:
 
 | | swing speed |
@@ -449,6 +458,10 @@ Duas travas são globais de propósito:
   bloqueia ataque por `hitstun`. Sem isso, trocar M1 pra sempre é a jogada ótima e
   tomar dano não custa nada. Bloquear ou aparar **não** staggera: defender bem é o
   prêmio, não pode custar o turno.
+- **`guardLockUntil`** — o stagger que tira **também a guarda**, e só ser aparado faz
+  isso. Hitstun comum deixa aparar: quem tomou o hit perdeu o turno, não a leitura, e
+  o parry é a saída. Sem os dois separados, `parriedLock` e `hitstun` teriam que
+  concordar, e um deles ficaria errado.
 - **`dashUntil`** — dash e ataque nunca coexistem. Não se ataca dashando (voadora em
   qualquer um, a qualquer hora) nem se dasha atacando (todo golpe ficaria seguro).
 

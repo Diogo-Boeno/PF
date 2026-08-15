@@ -69,17 +69,26 @@ end
 --
 -- One function because this choice has to be made everywhere something staggers, and
 -- forgetting the second branch is silent — the NPC simply keeps swinging.
-local function silence(character: Model?, duration: number)
+-- `lockGuard` is what separates the two silences. Plain hitstun leaves the guard usable,
+-- so a parry is still the way out; being parried takes even that, which is the turn the
+-- attacker paid for.
+local function silence(character: Model?, duration: number, lockGuard: boolean?)
 	if not character then
 		return
 	end
 
 	local victim = Players:GetPlayerFromCharacter(character)
 	if victim then
-		Net.FireClient("Stagger", victim, duration)
+		Net.FireClient("Stagger", victim, duration, lockGuard)
 	else
 		character:SetAttribute(Config.stunUntilAttribute, os.clock() + duration)
 	end
+end
+
+-- How long a hit buys is a property of the weapon that landed it
+local function hitstunOf(class: any?): number
+	local value = class and class.hitstun
+	return if type(value) == "number" then value else Config.hitstun
 end
 
 local function setPosture(player: Player, value: number)
@@ -370,7 +379,7 @@ function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, 
 	if not victim then
 		hurt(target, damage)
 		broadcastFx("hit", target.RootPart, defender)
-		silence(defender, Config.hitstun)
+		silence(defender, hitstunOf(class))
 		return "hit"
 	end
 
@@ -401,7 +410,7 @@ function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, 
 
 			-- Only a clean hit staggers. Blocking or parrying is the reward for
 			-- defending, so neither may cost the defender their turn.
-			silence(defender, Config.hitstun)
+			silence(defender, hitstunOf(class))
 			return "hit"
 		end
 
@@ -433,7 +442,8 @@ function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, 
 
 		if attacker then
 			addPosture(attacker, Guard.parryPosture)
-			Net.FireClient("Stagger", attacker, Guard.parriedLock)
+			-- Guard locked too: being parried costs the turn outright, unlike hitstun
+			Net.FireClient("Stagger", attacker, Guard.parriedLock, true)
 		end
 
 		if Config.debugHitbox.enabled then
