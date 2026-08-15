@@ -72,6 +72,10 @@ local function collectBars()
 			continue
 		end
 
+		-- Authored disabled in Studio to keep the editor clean. The inventory still
+		-- hides these while it is open; that toggle owns them from here on.
+		screen.Enabled = true
+
 		local fill = screen:FindFirstChild(FILL_NAME)
 		if fill and fill:IsA("Frame") then
 			bars[screen.Name] = { fill = fill, full = fill.Size }

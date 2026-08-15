@@ -149,6 +149,11 @@ function HotbarController.Start()
 		return
 	end
 
+	-- Authored disabled in Studio to keep the editor clean; in game it is always up
+	if gui:IsA("ScreenGui") then
+		gui.Enabled = true
+	end
+
 	local components = ReplicatedStorage:WaitForChild(COMPONENTS_NAME, FIND_TIMEOUT)
 	local source = components and components:FindFirstChild(EMPTY_TEMPLATE)
 	if source and source:IsA("GuiObject") then

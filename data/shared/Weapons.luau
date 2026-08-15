@@ -97,6 +97,10 @@ local Weapons = {
 		-- the victim can answer with M1 and erase the whole reward.
 		victimStun = 1.1,
 		cooldown = 2,
+
+		-- Fixed, and deliberately not the weapon's `speed`: a slow weapon still uppercuts
+		-- fast. Damage scaling against the weapon's own speed is what pays for that.
+		speed = 0.9,
 		hitbox = {
 			shape = "point",
 			size = Vector3.new(6, 6, 7),
@@ -104,9 +108,66 @@ local Weapons = {
 		},
 	},
 
+	-- Animations layer weight -> type -> class, because the asset names already say so:
+	-- `Heavy*` serves every heavy weapon, `Greataxe*` every greataxe, and
+	-- `GreataxeTwoHands*` only that grip. A weapon's own `animations` is the last word.
+	--
+	-- Only what actually varies lives here; everything else stays on the class.
+	weights = {
+		Heavy = {
+			-- Ignores the weapon's swing speed by design: a slow weapon still uppercuts
+			-- fast, and the damage scaling is what pays for it
+			uppercut = { animation = "rbxassetid://125721624070954" },
+		},
+	},
+
+	types = {
+		Greataxe = {
+			block = "rbxassetid://83891377944727",
+			parry = "rbxassetid://103985732950863",
+
+			-- Crouching is posture, but a greataxe is too big to hold the universal pose
+			crouch = {
+				idle = "rbxassetid://108592538476304",
+				walk = "rbxassetid://135450333455556",
+			},
+
+			-- The critical IS the heavy for this weapon; there is no separate move
+			heavy = {
+				animation = "rbxassetid://103950024178748",
+				-- PLACEHOLDER: copied from the sword, never tuned for a greataxe
+				damage = 26,
+				knockback = 26,
+				hitbox = {
+					shape = "cast",
+					size = Vector3.new(4, 4, 2),
+					offset = Vector3.new(0, 0, -1),
+					range = 9,
+				},
+			},
+			aerial = {
+				animation = "rbxassetid://81794080454334",
+				-- PLACEHOLDER: copied from the sword, never tuned for a greataxe
+				damage = 20,
+				hitbox = {
+					shape = "sweep",
+					size = Vector3.new(7, 8, 7),
+					offset = Vector3.new(0, -2, -2),
+				},
+				dashSpeed = 30,
+				dashFall = -8,
+				dashTime = 0.35,
+			},
+		},
+	},
+
 	-- A class owns only what it can do; a missing key IS the availability rule
 	classes = {
-		OneHandMedium = {
+		SwordOneHand = {
+			weight = "Medium",
+			type = "Sword",
+			-- The reference every other weapon is measured against
+			speed = 1,
 			damage = 12,
 			idle = "rbxassetid://121555066325081",
 			walk = "rbxassetid://131162423358667",
@@ -162,17 +223,49 @@ local Weapons = {
 				dashTime = 0.35,
 			},
 		},
+
+		GreataxeTwoHand = {
+			weight = "Heavy",
+			type = "Greataxe",
+			-- Against the medium sword at 1x. Assumes M1, aerial and flourish are authored
+			-- to `swingBase`; anything already made heavy gets slowed twice.
+			speed = 0.83,
+			-- PLACEHOLDER: copied from the sword, never tuned for a greataxe
+			damage = 12,
+			idle = "rbxassetid://77740771646689",
+			walk = "rbxassetid://79529144099802",
+			swings = {
+				"rbxassetid://111269660748188",
+				"rbxassetid://126576927120908",
+				"rbxassetid://86876023680893",
+			},
+
+			-- PLACEHOLDER: never measured. Read the seconds from the start of each swing
+			-- to its `Start` marker on the editor timeline, at 1x, and put the real
+			-- number here — the parry tell has nothing else to go on.
+			hitAt = 0.5,
+
+			-- Only the right side is authored, so nothing is ever rolled
+			parried = { right = "rbxassetid://124034155026056" },
+		},
 	},
 
 	-- One class per grip. A grip the weapon has no class for cannot be switched to,
-	-- which is what keeps TwoHand off until its animations exist.
+	-- which is what keeps a one-handed greataxe off until its animations exist.
 	--
 	-- `reach` scales this weapon's heavy and aerial hitboxes against the class
 	-- baseline, so a katana outranges a shortsword without either leaving the class.
 	-- Absent means 1. It does not touch the flourish, which is a kick.
 	byId = {
-		{ model = "Sword", classes = { OneHand = "OneHandMedium" } },
+		{ model = "Sword", classes = { OneHand = "SwordOneHand" } },
+		{ model = "Greataxe", classes = { TwoHand = "GreataxeTwoHand" } },
 	},
+
+	-- Every attack the swing speed scales is authored to this length, so the multiplier
+	-- is the only thing deciding how long it really takes: real = swingBase / speed.
+	-- A track that drifts from it is an authoring mistake and warns at load.
+	swingBase = 0.4,
+	swingBaseTolerance = 0.05,
 
 	-- Tail of a swing that accepts the next click; earlier clicks are dropped
 	comboBuffer = 0.25,
@@ -303,8 +396,38 @@ local Weapons = {
 	},
 }
 
+-- Flattens weight -> type -> class into the class itself, so every consumer keeps
+-- reading one table and never learns the layering exists.
+local function overlay(into: any, patch: any?)
+	if not patch then
+		return
+	end
+
+	for key, value in patch do
+		if type(value) == "table" and type(into[key]) == "table" then
+			local merged = table.clone(into[key])
+			for inner, entry in value do
+				merged[inner] = entry
+			end
+			into[key] = merged
+		else
+			into[key] = value
+		end
+	end
+end
+
+for name, class in Weapons.classes do
+	local resolved = {}
+	overlay(resolved, Weapons.weights[class.weight])
+	overlay(resolved, Weapons.types[class.type])
+	overlay(resolved, class)
+	Weapons.classes[name] = resolved
+end
+
 export type Weapons = typeof(Weapons)
 
+table.freeze(Weapons.weights)
+table.freeze(Weapons.types)
 table.freeze(Weapons.rig)
 table.freeze(Weapons.crouch)
 table.freeze(Weapons.uppercut)

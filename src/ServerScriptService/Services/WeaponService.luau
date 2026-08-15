@@ -229,6 +229,24 @@ function WeaponService.equip(player: Player, requestedId: any)
 	if player:GetAttribute(Config.attribute) == id then
 		return
 	end
+
+	-- A weapon with no class for the grip in force would equip into nothing, so the grip
+	-- follows the weapon. Written first, so the client resolves the class only once.
+	local entry = Config.byId[id]
+	if entry then
+		local grip = player:GetAttribute(Config.gripAttribute)
+		if type(grip) ~= "string" then
+			grip = Config.defaultGrip
+		end
+
+		if not entry.classes[grip] then
+			for available in entry.classes do
+				player:SetAttribute(Config.gripAttribute, available)
+				break
+			end
+		end
+	end
+
 	player:SetAttribute(Config.attribute, id)
 end
 

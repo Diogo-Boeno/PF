@@ -188,6 +188,27 @@ local function classFor(weaponId: number): any?
 	return class
 end
 
+-- Animation speed multiplier of the equipped class, against the medium sword at 1x.
+-- Locomotion, block and parry are left alone: a heavy weapon swings slow, it does not
+-- make the character walk slow.
+local classSpeed = 1
+
+-- The only attacks the weapon's swing speed touches. The heavy is outside it by design,
+-- and the uppercut runs at its own fixed pace instead.
+local SCALED: { [string]: boolean } = {
+	swing = true,
+	flourish = true,
+	aerial = true,
+}
+
+local function speedOf(kind: string?): number
+	-- Fixed on purpose: a slow weapon still uppercuts fast, and the damage scaling pays
+	if kind == "uppercut" then
+		return Config.uppercut.speed
+	end
+	return if kind and SCALED[kind] then classSpeed else 1
+end
+
 local function stunned(): boolean
 	return player:GetAttribute(Config.stunAttribute) == true
 end
@@ -552,6 +573,29 @@ local function startHitbox(kind: Kind)
 	end
 end
 
+-- Crouching is posture, so the pair is universal by default. A greataxe cannot hold
+-- that pose, which is why a class may bring its own and replace both.
+local function loadCrouchTracks(target: Animator, spec: any)
+	local stale = { crouchIdleTrack, crouchWalkTrack }
+	crouchIdleTrack = nil
+	crouchWalkTrack = nil
+
+	for _, track in stale do
+		track:Stop(FADE)
+		track:Destroy()
+	end
+
+	local idle = target:LoadAnimation(assetFor(spec.idle))
+	idle.Priority = LOCOMOTION_PRIORITY
+	idle.Looped = true
+	crouchIdleTrack = idle
+
+	local walk = target:LoadAnimation(assetFor(spec.walk))
+	walk.Priority = LOCOMOTION_PRIORITY
+	walk.Looped = true
+	crouchWalkTrack = walk
+end
+
 local function clearTracks()
 	-- Drop the queue first: Stop() below fires Stopped on every track
 	queued = false
@@ -694,13 +738,15 @@ local function scheduleTell(track: AnimationTrack)
 		return
 	end
 
-	local lead = hitAt - Config.guard.parryWindow
-	if lead <= 0 then
+	local kind = kindOf[track]
+	if not kind then
 		return
 	end
 
-	local kind = kindOf[track]
-	if not kind then
+	-- `hitAt` is read off the editor timeline at 1x, so a slowed swing reaches its
+	-- marker later in real seconds
+	local lead = hitAt / speedOf(kind) - Config.guard.parryWindow
+	if lead <= 0 then
 		return
 	end
 
@@ -727,11 +773,12 @@ local function play(track: AnimationTrack)
 	cancelled = false
 	stopLocomotion()
 	setAttackLock(true)
-	track:Play(FADE)
+
+	local kind = kindOf[track]
+	track:Play(FADE, 1, speedOf(kind))
 
 	-- Telegraph on the first frame of the windup, not when the blade goes live: a tell
 	-- that arrives with the hitbox is not a tell
-	local kind = kindOf[track]
 	local character = player.Character
 	if kind and character then
 		FxController.highlight(kind, character)
@@ -801,11 +848,45 @@ local function onAttackEnded(track: AnimationTrack)
 	end
 end
 
+-- Everything the swing speed scales is authored to one base length, so the multiplier is
+-- the only thing deciding real time. Drift is an authoring mistake and silent otherwise:
+-- the move just feels wrong and no number in the code is to blame.
+local function checkBaseLength(track: AnimationTrack, kind: Kind, id: string)
+	if not SCALED[kind] then
+		return
+	end
+
+	local function verify()
+		local length = track.Length
+		if math.abs(length - Config.swingBase) > Config.swingBaseTolerance then
+			warn(`[Combat] {kind} "{id}" is {length}s, authored against {Config.swingBase}s`)
+		end
+	end
+
+	-- Length reads 0 until the asset itself has loaded
+	if track.Length > 0 then
+		verify()
+		return
+	end
+
+	local connection: RBXScriptConnection? = nil
+	connection = track:GetPropertyChangedSignal("Length"):Connect(function()
+		if track.Length > 0 and connection then
+			connection:Disconnect()
+			verify()
+		end
+	end)
+end
+
 local function buildTrack(target: Animator, id: string, kind: Kind): AnimationTrack
 	local track = target:LoadAnimation(assetFor(id))
 	track.Priority = SWING_PRIORITY
 	track.Looped = false
 	kindOf[track] = kind
+
+	if debugging() then
+		checkBaseLength(track, kind, id)
+	end
 
 	-- Logs which markers an animation actually fires. A marker that was authored but
 	-- never published simply never arrives, and without this it is indistinguishable
@@ -852,6 +933,9 @@ local function loadTracks(weaponId: number)
 		return
 	end
 
+	classSpeed = if type(class.speed) == "number" then class.speed else 1
+	loadCrouchTracks(target, class.crouch or Config.crouch)
+
 	local idle = target:LoadAnimation(assetFor(class.idle))
 	idle.Priority = LOCOMOTION_PRIORITY
 	idle.Looped = true
@@ -866,8 +950,10 @@ local function loadTracks(weaponId: number)
 	-- Flourish is the chain's last link for every weapon, not a class animation
 	table.insert(chain, buildTrack(target, Config.flourish.animation, "flourish"))
 
-	-- Universal like the flourish, but off the chain: it answers to crouch, not to M1 order
-	uppercutTrack = buildTrack(target, Config.uppercut.animation, "uppercut")
+	-- Off the chain: it answers to crouch, not to M1 order. Universal unless the weight
+	-- class brings its own, which is what `HeavyUppercut` is.
+	local uppercutId = if class.uppercut then class.uppercut.animation else Config.uppercut.animation
+	uppercutTrack = buildTrack(target, uppercutId, "uppercut")
 
 	if class.heavy then
 		heavyTrack = buildTrack(target, class.heavy.animation, "heavy")
@@ -918,6 +1004,13 @@ local function refresh()
 	local id = player:GetAttribute(Config.attribute)
 	if type(id) == "number" and id ~= Config.unarmed then
 		loadTracks(id)
+		return
+	end
+
+	-- Unarmed goes back to the universal pair and to normal speed
+	classSpeed = 1
+	if animator then
+		loadCrouchTracks(animator, Config.crouch)
 	end
 end
 
@@ -998,8 +1091,10 @@ local function swing()
 		return
 	end
 
-	-- An attack is never cut; only its tail buffers the next one
-	if kindOf[active] == "swing" and active.Length - active.TimePosition <= Config.comboBuffer then
+	-- An attack is never cut; only its tail buffers the next one. TimePosition runs in
+	-- animation time, so the remainder has to be converted to real seconds first.
+	local kind = kindOf[active]
+	if kind == "swing" and (active.Length - active.TimePosition) / speedOf(kind) <= Config.comboBuffer then
 		queued = true
 	end
 end
@@ -1356,15 +1451,7 @@ local function setupCharacter(character: Model)
 	cancel.Looped = false
 	dashCancelTrack = cancel
 
-	local crouchIdle = newAnimator:LoadAnimation(assetFor(Config.crouch.idle))
-	crouchIdle.Priority = LOCOMOTION_PRIORITY
-	crouchIdle.Looped = true
-	crouchIdleTrack = crouchIdle
-
-	local crouchWalk = newAnimator:LoadAnimation(assetFor(Config.crouch.walk))
-	crouchWalk.Priority = LOCOMOTION_PRIORITY
-	crouchWalk.Looped = true
-	crouchWalkTrack = crouchWalk
+	loadCrouchTracks(newAnimator, Config.crouch)
 
 	table.insert(connections, character:GetAttributeChangedSignal(Config.crouch.attribute):Connect(updateLocomotion))
 

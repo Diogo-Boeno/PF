@@ -3,4 +3,5 @@
 
 return {
 	sword = { label = "Sword", weapon = 1 },
+	greataxe = { label = "Greataxe", weapon = 2 },
 }

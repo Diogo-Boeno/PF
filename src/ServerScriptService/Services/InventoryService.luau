@@ -15,7 +15,7 @@ local DataService = require(script.Parent.DataService)
 local WeaponService = require(script.Parent.WeaponService)
 
 -- Test grant, delete once the world hands out items
-local STARTER_ITEM = "sword"
+local STARTER_ITEM = "greataxe"
 
 local REQUEST_COOLDOWN = 0.15
 

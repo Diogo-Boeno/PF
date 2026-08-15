@@ -269,10 +269,66 @@ e `$ignoreUnknownInstances` impede o Rojo de apagar.
 ### Animação de arma
 
 Animação Roblox guarda Pose por nome de parte, e toda arma roda num `Handle` — então um
-swing autorado uma vez serve todas as armas da classe. **Classe é grip + tamanho**
-(`OneHandMedium`), não arma: as dez espadas médias de uma mão compartilham o mesmo set.
-Arma que precisa de um golpe próprio põe `animations` na entrada e sobrescreve **por
-chave**, herdando o resto da classe.
+swing autorado uma vez serve todas as armas da classe.
+
+**Classe é tipo + grip** (`SwordOneHand`, `GreataxeTwoHand`), e ela herda de duas camadas
+acima. O nome do asset é o contrato:
+
+| camada | onde | exemplo | serve |
+|---|---|---|---|
+| peso | `weights.Heavy` | `HeavyUppercut` | toda arma pesada |
+| tipo | `types.Greataxe` | `GreatAxeAerial`, `GreataxeBlock` | greataxe em qualquer grip |
+| classe | `classes.GreataxeTwoHand` | `GreataxeTwoHandsA1` | só aquele grip |
+| arma | `animations` na entrada de `byId` | — | uma arma específica |
+
+O merge roda **uma vez no require** e achata tudo dentro de `classes`, então
+`CombatController` e `WeaponService` continuam lendo uma tabela só e não sabem que a
+hierarquia existe.
+
+Crouch e uppercut deixaram de ser puramente universais: `Config.crouch` e
+`Config.uppercut.animation` continuam sendo o default, e classe ou peso sobrescrevem. É
+por isso que o crouch é recarregado por arma e volta ao par universal ao desarmar.
+
+### Swing speed
+
+`speed` na classe é multiplicador de animação contra a **espada média a 1x** (greataxe
+0.83). A conta é uma só:
+
+```
+TempoReal = Config.swingBase / speed
+```
+
+**Toda animação que o swing speed escala nasce com `swingBase` (0.40s).** Não é convenção
+frouxa: o multiplicador é a única coisa que decide o tempo real, então animação autorada
+já pesada é lentidão aplicada duas vezes — e como `AdjustSpeed` é uniforme, o windup e a
+recuperação esticam junto e o golpe lê como desproporcional em vez de pesado. Foi
+exatamente o que aconteceu no primeiro greataxe.
+
+`buildTrack` confere o `Length` contra `swingBase` com `debugHitbox` ligado e emite warn
+nomeando o asset. Sem isso o erro é mudo: o golpe só "parece errado" e nenhum número no
+código tem culpa.
+
+Quem obedece e quem não:
+
+| | swing speed |
+|---|---|
+| M1, flourish, aerial | **sim** |
+| heavy | não |
+| uppercut | não — `Config.uppercut.speed`, fixo em 0.9 |
+| locomoção, block, parry, crouch | não |
+
+Arma pesada golpeia devagar, não anda devagar — por isso idle, walk, block, parry e
+crouch podem ser autorados no ritmo que ficar certo, sem base nenhuma.
+
+**O uppercut não obedece** (`Config.uppercut.speed = 0.9`, fixo). Arma lenta ainda
+uppercuta rápido; quem paga por isso é o escalonamento de dano.
+
+Duas contas dependem disso e quebram caladas se esquecidas:
+
+- **`hitAt`** é lido na régua do editor a 1x, então o tell divide por `speed` — swing
+  lento chega no marker mais tarde em segundos reais
+- **`comboBuffer`** compara `Length - TimePosition`, que é tempo de *animação*; converter
+  pra segundos reais é dividir por `speed` também
 
 `CombatController` toca só para o dono — `Animator` replica pro resto de graça.
 
