@@ -836,7 +836,16 @@ distintos e é por isso que são dois atributos:
 | | `Held` | `Weapon` |
 |---|---|---|
 | escrito por | equipar | primeiro M1 (`UseHeld`) |
-| efeito | modelo na mão | classe, animações, hitbox |
+| efeito | modelo na mão | qual arma é a sua |
+| some quando | você põe outra coisa na mão | só sacando **outra** arma |
+
+**`Weapon` é memória, não estado da mão.** Guardar a arma ou pegar uma pedra **não
+desarma** — só sacar outra arma troca. Equipar escrevendo `unarmed` era o bug: qualquer
+item que fosse pra mão zerava a arma equipada.
+
+Combate exige as duas coisas: `wielding()` só devolve a arma quando o `Held` **é** ela.
+Sem modelo na mão não há hitbox nem lâmina pra mostrar, então golpear o ar não é estado.
+É por isso que `refresh` observa os dois atributos.
 
 **Estar na mão e estar na hotbar são coisas diferentes.** Equipar escreve `Held` e
 **nunca toca no `Equipment`** — reservar slot no equip foi o que fez uma espada só

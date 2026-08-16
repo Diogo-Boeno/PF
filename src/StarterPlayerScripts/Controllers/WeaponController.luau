@@ -8,8 +8,10 @@ local Items = require(ReplicatedStorage.Data.Items)
 
 local HAND_TIMEOUT = 10
 
+-- A one-piece item is its own root. Wrapping a mesh in a Model just to satisfy the
+-- weapon contract would be ceremony, so a BasePart template is accepted as-is.
 type Template = {
-	model: Model,
+	instance: Instance,
 	gripCFrame: CFrame,
 }
 
@@ -18,7 +20,7 @@ type Template = {
 local templates: { [string]: Template } = {}
 
 local grips: { [Player]: Attachment } = {}
-local mounted: { [Player]: Model } = {}
+local mounted: { [Player]: Instance } = {}
 local watching: { [Player]: { RBXScriptConnection } } = {}
 
 local WeaponController = {}
@@ -41,8 +43,12 @@ local function mount(player: Player, id: string)
 		return
 	end
 
-	local model = template.model:Clone()
-	local root = model.PrimaryPart
+	local clone = template.instance:Clone()
+	local root = if clone:IsA("Model") then clone.PrimaryPart else clone :: BasePart
+	if not root then
+		clone:Destroy()
+		return
+	end
 
 	-- Motor6D, not Weld: only a joint is animatable
 	local joint = Instance.new("Motor6D")
@@ -53,11 +59,11 @@ local function mount(player: Player, id: string)
 	joint.C1 = template.gripCFrame
 
 	-- Parent before joining, or the assembly rebuilds twice
-	model.Parent = character
-	-- Joint lives on the weapon so one Destroy takes it too
+	clone.Parent = character
+	-- Joint lives on the item so one Destroy takes it too
 	joint.Parent = root
 
-	mounted[player] = model
+	mounted[player] = clone
 end
 
 -- Mounted off what is HELD, not off what is wielded: carrying an item shows it in the
@@ -147,26 +153,38 @@ local function loadTemplates()
 			continue
 		end
 
-		local model = folder and folder:FindFirstChild(name)
-		if not model or not model:IsA("Model") then
+		-- Recursive: the folder is organised into subfolders by hand, and that layout is
+		-- the author's to change without breaking the lookup
+		local instance = folder and folder:FindFirstChild(name, true)
+		if not instance then
 			warn(`[WeaponController] missing model "{name}" for item "{id}"`)
 			continue
 		end
 
-		local root = model.PrimaryPart
-		if not root or root.Name ~= Config.rootName then
-			warn(`[WeaponController] "{name}" needs PrimaryPart named {Config.rootName}`)
+		local root = if instance:IsA("Model") then instance.PrimaryPart else instance :: BasePart
+		if not root or not root:IsA("BasePart") then
+			warn(`[WeaponController] "{name}" is a Model with no PrimaryPart`)
 			continue
 		end
 
-		local gripAttachment = root:FindFirstChild(Config.rig.gripAttachment)
-		if not gripAttachment or not gripAttachment:IsA("Attachment") then
-			warn(`[WeaponController] "{name}" is missing {Config.rootName}.{Config.rig.gripAttachment}`)
-			continue
+		-- Animation stores pose by part name, and the shared swings animate `Handle`. A
+		-- weapon rooted on anything else mounts fine and then never moves.
+		if entry.weapon and root.Name ~= Config.rootName then
+			warn(
+				`[WeaponController] "{name}" root is "{root.Name}", not {Config.rootName} — swings will not animate it`
+			)
 		end
+
+		-- A weapon aligns two GripAttachments so the pose is authored, not guessed. A
+		-- plain item has none and is held by its pivot, which inherits the grip's own
+		-- orientation — authored for a blade, so it needs `holdOffset` to stand upright.
+		local gripAttachment = root:FindFirstChild(Config.rig.gripAttachment)
+		local gripCFrame = if gripAttachment and gripAttachment:IsA("Attachment")
+			then gripAttachment.CFrame
+			else Items.holdOffset
 
 		-- Once per template, not per clone
-		for _, part in model:GetDescendants() do
+		for _, part in instance:GetDescendants() do
 			if part:IsA("BasePart") then
 				part.Massless = true
 				part.CanCollide = false
@@ -174,10 +192,16 @@ local function loadTemplates()
 				part.CanTouch = false
 			end
 		end
+		if instance:IsA("BasePart") then
+			instance.Massless = true
+			instance.CanCollide = false
+			instance.CanQuery = false
+			instance.CanTouch = false
+		end
 
 		templates[id] = {
-			model = model,
-			gripCFrame = gripAttachment.CFrame,
+			instance = instance,
+			gripCFrame = gripCFrame,
 		}
 	end
 end

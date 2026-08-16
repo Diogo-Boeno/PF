@@ -77,6 +77,10 @@ local uppercutTrack: AnimationTrack? = nil
 -- Universal locomotion, loaded per character: crouching is not a weapon stance
 local crouchIdleTrack: AnimationTrack? = nil
 local crouchWalkTrack: AnimationTrack? = nil
+
+-- Carried-item pose. Loaded per character, not per weapon: it answers to what is in the
+-- hand, and a plain item never loads a weapon class at all.
+local holdTrack: AnimationTrack? = nil
 local uppercutReadyAt = 0
 local parriedTracks: { [string]: AnimationTrack } = {}
 local kindOf: { [AnimationTrack]: Kind } = {}
@@ -1005,11 +1009,44 @@ local function loadTracks(weaponId: number)
 	updateLocomotion()
 end
 
+-- The equipped weapon is remembered even with an empty hand, but combat needs it in the
+-- hand: no model means no hitbox and no blade to show, so swinging air is not a state.
+local function wielding(): number?
+	local id = player:GetAttribute(Config.attribute)
+	if type(id) ~= "number" or id == Config.unarmed then
+		return nil
+	end
+
+	local held = player:GetAttribute(Items.heldAttribute)
+	local entry = if type(held) == "string" then Items.byId[held] else nil
+	return if entry and entry.weapon == id then id else nil
+end
+
+-- Anything carried that is not a weapon gets the plain hold pose. Above locomotion so it
+-- rides over walking, and it never competes with block: no weapon means no block track.
+local function updateHold()
+	local track = holdTrack
+	if not track then
+		return
+	end
+
+	local held = player:GetAttribute(Items.heldAttribute)
+	local entry = if type(held) == "string" then Items.byId[held] else nil
+	local carrying = entry ~= nil and entry.weapon == nil
+
+	if carrying and not track.IsPlaying then
+		track:Play(FADE)
+	elseif not carrying and track.IsPlaying then
+		track:Stop(FADE)
+	end
+end
+
 local function refresh()
 	clearTracks()
+	updateHold()
 
-	local id = player:GetAttribute(Config.attribute)
-	if type(id) == "number" and id ~= Config.unarmed then
+	local id = wielding()
+	if id then
 		loadTracks(id)
 		return
 	end
@@ -1071,13 +1108,16 @@ end
 -- tracks are still loading, and LoadAnimation is not instant — a swing asked for in the
 -- same frame would simply be silent, which reads as an eaten input.
 local function drawHeld(): boolean
-	local weaponId = player:GetAttribute(Config.attribute)
-	if type(weaponId) == "number" and weaponId ~= Config.unarmed then
+	-- Already wielding what is in hand, so this click is a swing
+	if wielding() then
 		return false
 	end
 
+	-- Only a weapon is drawn. Holding a rock leaves M1 to the empty chain, which does
+	-- nothing — the click is not eaten by an item that has no attack.
 	local held = player:GetAttribute(Items.heldAttribute)
-	if type(held) ~= "string" or held == "" then
+	local entry = if type(held) == "string" then Items.byId[held] else nil
+	if not entry or not entry.weapon then
 		return false
 	end
 
@@ -1483,6 +1523,11 @@ local function setupCharacter(character: Model)
 
 	loadCrouchTracks(newAnimator, Config.crouch)
 
+	local hold = newAnimator:LoadAnimation(assetFor(Items.holdAnimation))
+	hold.Priority = BLOCK_PRIORITY
+	hold.Looped = true
+	holdTrack = hold
+
 	table.insert(connections, character:GetAttributeChangedSignal(Config.crouch.attribute):Connect(updateLocomotion))
 
 	table.insert(connections, newHumanoid:GetPropertyChangedSignal("MoveDirection"):Connect(updateLocomotion))
@@ -1502,6 +1547,8 @@ end
 
 function CombatController.Start()
 	player:GetAttributeChangedSignal(Config.attribute):Connect(refresh)
+	-- Putting the weapon down keeps it equipped but ends combat, so the hand matters too
+	player:GetAttributeChangedSignal(Items.heldAttribute):Connect(refresh)
 	-- Grip picks the animation class, so it rebuilds the same way a weapon swap does
 	player:GetAttributeChangedSignal(Config.gripAttribute):Connect(refresh)
 

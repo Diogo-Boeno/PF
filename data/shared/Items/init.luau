@@ -13,6 +13,8 @@ export type Entry = {
 	-- Model name under ReplicatedStorage.Items. A weapon takes its own from the weapon
 	-- catalog instead; an item with neither simply never shows in the hand.
 	model: string?,
+	-- Key into Shared.UI.ItemRarity. Absent falls back to Common, with a warn.
+	rarity: string?,
 }
 
 local Items = {
@@ -25,6 +27,16 @@ local Items = {
 	-- Where non-weapon models live, in ReplicatedStorage. Weapons keep their own folder
 	-- because the weapon catalog, not the item catalog, names them.
 	folder = "Items",
+
+	-- One looping keyframe, hand forward. Anything carried that is not a weapon gets it,
+	-- because a plain item has no moveset of its own to pose the arm.
+	holdAnimation = "rbxassetid://119038908105326",
+
+	-- Pose of a pivot-held item against the palm's grip. The grip was authored for a
+	-- blade, so an item borrowing it lands lying along the blade axis instead of upright.
+	--
+	-- Authored by eye, not derived: flip the sign or swap the axis until it looks right.
+	holdOffset = CFrame.Angles(-math.pi / 2, 0, 0),
 
 	-- Item id in hand. Carrying is not wielding: the model is mounted off this, while
 	-- the combat class waits for `Weapons.attribute`, which the first M1 writes.

@@ -10,12 +10,15 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Net = require(ReplicatedStorage.Shared.Framework.Net)
 local Items = require(ReplicatedStorage.Data.Items)
-local Weapons = require(ReplicatedStorage.Data.Weapons)
 local DataService = require(script.Parent.DataService)
 local WeaponService = require(script.Parent.WeaponService)
 
 -- Test grant, delete once the world hands out items
 local STARTER_ITEM = "greataxe"
+
+-- Test grant: one of everything, so the whole catalogue can be looked at in the bag.
+-- Delete along with STARTER_ITEM.
+local GRANT_ALL = true
 
 local REQUEST_COOLDOWN = 0.15
 
@@ -112,10 +115,11 @@ function InventoryService.equip(player: Player, id: string?): boolean
 		return false
 	end
 
+	-- The equipped weapon is character state and survives an empty hand. Only drawing a
+	-- different weapon replaces it; putting this one away does not disarm you.
 	if id == nil then
 		lineage.Held = ""
 		player:SetAttribute(Items.heldAttribute, nil)
-		WeaponService.equip(player, Weapons.unarmed)
 		return true
 	end
 
@@ -130,7 +134,6 @@ function InventoryService.equip(player: Player, id: string?): boolean
 	-- dropped. Drawing it is the first M1, which is what writes the weapon attribute.
 	lineage.Held = id
 	player:SetAttribute(Items.heldAttribute, id)
-	WeaponService.equip(player, Weapons.unarmed)
 	return true
 end
 
@@ -246,6 +249,14 @@ local function onSpawn(player: Player)
 
 	if not lineage.Inventory[STARTER_ITEM] then
 		InventoryService.grant(player, STARTER_ITEM)
+	end
+
+	if GRANT_ALL then
+		for id in Items.byId do
+			if not lineage.Inventory[id] then
+				InventoryService.grant(player, id)
+			end
+		end
 	end
 
 	-- What was in hand comes back with the body; the attribute does not survive a rejoin

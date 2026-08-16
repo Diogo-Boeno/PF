@@ -7,7 +7,8 @@ local UserInputService = game:GetService("UserInputService")
 local Net = require(ReplicatedStorage.Shared.Framework.Net)
 local State = require(ReplicatedStorage.Shared.Framework.State)
 local Items = require(ReplicatedStorage.Data.Items)
-local Weapons = require(ReplicatedStorage.Data.Weapons)
+local ItemRarity = require(ReplicatedStorage.Shared.UI.ItemRarity)
+local ItemCategory = require(ReplicatedStorage.Shared.UI.ItemCategory)
 
 local UI_NAME = "HotbarUI"
 local HOLDER_NAME = "Holder"
@@ -94,6 +95,14 @@ local function paint(name: string)
 		slot.stroke.Visible = filled
 	end
 
+	-- Category fills, rarity outlines — same rule the inventory cell follows
+	if entry then
+		slot.button.BackgroundColor3 = ItemCategory.get(entry.category).Background
+		if slot.stroke and slot.stroke:IsA("ImageLabel") then
+			slot.stroke.ImageColor3 = ItemRarity.get(entry.rarity).Border
+		end
+	end
+
 	-- An empty slot is only worth showing while there is something to drop into it
 	if slot.empty then
 		slot.empty.Visible = not filled and bagOpen
@@ -108,13 +117,14 @@ end
 
 local function activate(name: string)
 	local entry = entryOf(name)
-	if not entry or not entry.weapon then
+	if not entry then
 		return
 	end
 
-	-- Hitting the equipped slot again puts it away. The slot keeps the item either way.
-	local equipped = player:GetAttribute(Weapons.attribute)
-	Net.FireServer("EquipItem", if equipped == entry.weapon then nil else entry.id)
+	-- Toggles on what is IN HAND, not on the equipped weapon: `Weapon` is memory now and
+	-- survives putting the thing away, so comparing against it never flipped back.
+	local held = player:GetAttribute(Items.heldAttribute)
+	Net.FireServer("EquipItem", if held == entry.id then nil else entry.id)
 end
 
 local function makeEmpty(button: ImageButton): GuiObject?

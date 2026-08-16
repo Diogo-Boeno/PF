@@ -15,6 +15,8 @@ local UserInputService = game:GetService("UserInputService")
 local Net = require(ReplicatedStorage.Shared.Framework.Net)
 local State = require(ReplicatedStorage.Shared.Framework.State)
 local Items = require(ReplicatedStorage.Data.Items)
+local ItemRarity = require(ReplicatedStorage.Shared.UI.ItemRarity)
+local ItemCategory = require(ReplicatedStorage.Shared.UI.ItemCategory)
 
 local TOGGLE_KEY = Enum.KeyCode.Tab
 local TOGGLE_ACTION = "InventoryToggle"
@@ -29,6 +31,7 @@ local CELLS_NAME = "Frame"
 local CATEGORY_NAME = "Category"
 local QUANTITY_NAME = "Quantity"
 local LABEL_NAME = "ContentName"
+local STROKE_NAME = "Stroke"
 
 local COMPONENTS_NAME = "Components"
 local TEMPLATE_NAME = "CellButton"
@@ -139,10 +142,9 @@ local function isDragInput(input: InputObject): boolean
 	return input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch
 end
 
+-- Any item goes to the hand, not just a weapon. The server checks possession.
 local function equip(id: string)
-	local entry = Items.byId[id]
-	-- Nothing else is equippable yet; a material cell simply does not answer
-	if entry and entry.weapon then
+	if Items.byId[id] then
 		Net.FireServer("EquipItem", id)
 	end
 end
@@ -159,6 +161,14 @@ local function buildCell(category: Category, entry: Items.Entry)
 	local label = cell:FindFirstChild(LABEL_NAME, true)
 	if label and label:IsA("TextLabel") then
 		label.Text = entry.label
+	end
+
+	-- Category fills, rarity outlines. Nothing else colours a slot.
+	cell.BackgroundColor3 = ItemCategory.get(entry.category).Background
+
+	local stroke = cell:FindFirstChild(STROKE_NAME)
+	if stroke and stroke:IsA("ImageLabel") then
+		stroke.ImageColor3 = ItemRarity.get(entry.rarity).Border
 	end
 
 	-- Activated is not used: a press that turns into a drag must not also equip
