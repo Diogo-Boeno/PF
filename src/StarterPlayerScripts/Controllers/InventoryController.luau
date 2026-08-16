@@ -16,7 +16,6 @@ local Net = require(ReplicatedStorage.Shared.Framework.Net)
 local State = require(ReplicatedStorage.Shared.Framework.State)
 local Items = require(ReplicatedStorage.Data.Items)
 local ItemRarity = require(ReplicatedStorage.Shared.UI.ItemRarity)
-local ItemCategory = require(ReplicatedStorage.Shared.UI.ItemCategory)
 
 local TOGGLE_KEY = Enum.KeyCode.Tab
 local TOGGLE_ACTION = "InventoryToggle"
@@ -163,12 +162,14 @@ local function buildCell(category: Category, entry: Items.Entry)
 		label.Text = entry.label
 	end
 
-	-- Category fills, rarity outlines. Nothing else colours a slot.
-	cell.BackgroundColor3 = ItemCategory.get(entry.category).Background
+	-- Rarity owns both fill and border. Category is communicated by which section the
+	-- cell sits in, so painting it here would say it twice.
+	local rarity = ItemRarity.get(entry.rarity)
+	cell.BackgroundColor3 = rarity.Fill
 
 	local stroke = cell:FindFirstChild(STROKE_NAME)
 	if stroke and stroke:IsA("ImageLabel") then
-		stroke.ImageColor3 = ItemRarity.get(entry.rarity).Border
+		stroke.ImageColor3 = ItemRarity.borderOf(rarity.Fill)
 	end
 
 	-- Activated is not used: a press that turns into a drag must not also equip

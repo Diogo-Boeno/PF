@@ -813,11 +813,17 @@ primeira vez que um deles é reordenado.
 
 `InventoryService` é o dono. Posse e hotbar são coisas separadas no perfil:
 
-| | onde | o quê |
-|---|---|---|
-| posse | `lineage.Inventory` | id → quantidade |
-| hotbar | `lineage.Equipment` | slot → id |
-| na mão | `lineage.Held` | id, ou `""` |
+| | onde | o quê | volta no rejoin |
+|---|---|---|---|
+| posse | `lineage.Inventory` | id → quantidade | sim |
+| hotbar | `lineage.Equipment` | slot → id | sim |
+| na mão | `lineage.Held` | id, ou `""` | **não** |
+| arma sua | `lineage.Equipped` | id da arma sacada | sim |
+
+**Corpo novo nasce de mão vazia.** O que você estava carregando não é do personagem; a
+arma que você escolheu é. Por isso `Held` é zerado em todo spawn e `Equipped` reescreve o
+atributo `Weapon` — a arma volta **pronta pra sacar**, e pôr ela na mão já a empunha, sem
+o M1 de saque.
 
 Os três persistem por ProfileStore. A hotbar replica por atributo como sempre; a posse
 não cabe num atributo e vai por `Net "InventorySync"`, que o client também pede no

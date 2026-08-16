@@ -147,6 +147,10 @@ end
 local function loadTemplates()
 	ReplicatedStorage:WaitForChild(Config.folder)
 
+	-- Collected into one line at the end: twenty separate warns is noise, one sorted
+	-- list is a checklist of what still has to be posed by hand
+	local pivoted: { string } = {}
+
 	for id, entry in Items.byId do
 		local name, folder = templateNameFor(entry)
 		if not name then
@@ -178,10 +182,18 @@ local function loadTemplates()
 		-- A weapon aligns two GripAttachments so the pose is authored, not guessed. A
 		-- plain item has none and is held by its pivot, which inherits the grip's own
 		-- orientation — authored for a blade, so it needs `holdOffset` to stand upright.
-		local gripAttachment = root:FindFirstChild(Config.rig.gripAttachment)
-		local gripCFrame = if gripAttachment and gripAttachment:IsA("Attachment")
-			then gripAttachment.CFrame
-			else Items.holdOffset
+		-- Recursive: a Model may carry the grip on any of its parts, not just the one that
+		-- happens to be the PrimaryPart
+		local gripAttachment = instance:FindFirstChild(Config.rig.gripAttachment, true)
+		local gripCFrame = Items.holdOffset
+
+		if gripAttachment and gripAttachment:IsA("Attachment") then
+			-- Converted into the root's space, because C1 only means anything relative to
+			-- Part1. On a weapon, whose grip sits on the root, this is the same CFrame.
+			gripCFrame = root.CFrame:ToObjectSpace(gripAttachment.WorldCFrame)
+		else
+			table.insert(pivoted, id)
+		end
 
 		-- Once per template, not per clone
 		for _, part in instance:GetDescendants() do
@@ -190,6 +202,16 @@ local function loadTemplates()
 				part.CanCollide = false
 				part.CanQuery = false
 				part.CanTouch = false
+
+				-- Only the root carries the Motor6D, so the rest has to ride along or a
+				-- two-piece item leaves its other half on the floor. Welding the template
+				-- means the clone comes out already whole.
+				if part ~= root then
+					local weld = Instance.new("WeldConstraint")
+					weld.Part0 = root
+					weld.Part1 = part
+					weld.Parent = root
+				end
 			end
 		end
 		if instance:IsA("BasePart") then
@@ -203,6 +225,11 @@ local function loadTemplates()
 			instance = instance,
 			gripCFrame = gripCFrame,
 		}
+	end
+
+	if #pivoted > 0 then
+		table.sort(pivoted)
+		warn(`[WeaponController] no {Config.rig.gripAttachment}, held by pivot: {table.concat(pivoted, ", ")}`)
 	end
 end
 

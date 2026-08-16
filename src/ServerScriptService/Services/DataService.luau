@@ -38,7 +38,10 @@ local function newLineage(): any
 		Inventory = {},
 		Equipment = {},
 		-- What is in hand right now. Separate from Equipment: holding is not slotting.
+		-- Not restored on spawn — a new body starts empty-handed.
 		Held = "",
+		-- The weapon that is yours. Survives a rejoin so it comes back ready to draw.
+		Equipped = "",
 		-- id → last slot it occupied, so using it again sends it back where it was
 		LastSlot = {},
 		QuestProgress = {},

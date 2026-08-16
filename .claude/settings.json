@@ -100,7 +100,8 @@
       "PowerShell(selene src/StarterPlayerScripts/Controllers/CombatController.luau)",
       "PowerShell(stylua --check src/StarterPlayerScripts/Controllers/CombatController.luau)",
       "PowerShell(stylua data/shared/Items src/StarterPlayerScripts/Controllers/WeaponController.luau; if \\($?\\) { selene data/shared/Items src/StarterPlayerScripts/Controllers/WeaponController.luau; if \\($?\\) { rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\" } })",
-      "PowerShell(stylua src/StarterPlayerScripts/Controllers/CombatController.luau src/ServerScriptService/Services/InventoryService.luau; if \\($?\\) { selene src/StarterPlayerScripts/Controllers/CombatController.luau src/ServerScriptService/Services/InventoryService.luau; if \\($?\\) { rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\" } })"
+      "PowerShell(stylua src/StarterPlayerScripts/Controllers/CombatController.luau src/ServerScriptService/Services/InventoryService.luau; if \\($?\\) { selene src/StarterPlayerScripts/Controllers/CombatController.luau src/ServerScriptService/Services/InventoryService.luau; if \\($?\\) { rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\" } })",
+      "PowerShell(stylua src/ReplicatedStorage/Shared/UI/ItemRarity.luau src/StarterPlayerScripts/Controllers/InventoryController.luau src/StarterPlayerScripts/Controllers/HotbarController.luau; if \\($?\\) { selene src/ReplicatedStorage/Shared/UI/ItemRarity.luau src/StarterPlayerScripts/Controllers/InventoryController.luau src/StarterPlayerScripts/Controllers/HotbarController.luau; if \\($?\\) { rojo build default.project.json -o \"$env:TEMP/project_test.rbxlx\" } })"
     ],
     "additionalDirectories": [
       "c:\\Users\\diogo\\.claude\\projects\\c--Users-diogo-Projects-PF\\memory"

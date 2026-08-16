@@ -192,6 +192,9 @@ function InventoryService.commitHeld(player: Player): boolean
 	-- report that follows costs nothing.
 	if entry.weapon then
 		WeaponService.equip(player, entry.weapon)
+		-- Remembered in the profile: the attribute is session-only, and the chosen weapon
+		-- is part of the character
+		lineage.Equipped = id
 	end
 
 	if slotOf(lineage, id) then
@@ -259,10 +262,15 @@ local function onSpawn(player: Player)
 		end
 	end
 
-	-- What was in hand comes back with the body; the attribute does not survive a rejoin
-	local held = lineage.Held
-	if type(held) == "string" and held ~= "" then
-		InventoryService.equip(player, held)
+	-- A new body starts empty-handed. What you were carrying is not part of the
+	-- character; the weapon you chose is, so that one comes back ready to draw.
+	lineage.Held = ""
+	player:SetAttribute(Items.heldAttribute, nil)
+
+	local equipped = lineage.Equipped
+	local entry = if type(equipped) == "string" then Items.byId[equipped] else nil
+	if entry and entry.weapon and owns(lineage, equipped) then
+		WeaponService.equip(player, entry.weapon)
 	end
 
 	publish(player)

@@ -8,7 +8,6 @@ local Net = require(ReplicatedStorage.Shared.Framework.Net)
 local State = require(ReplicatedStorage.Shared.Framework.State)
 local Items = require(ReplicatedStorage.Data.Items)
 local ItemRarity = require(ReplicatedStorage.Shared.UI.ItemRarity)
-local ItemCategory = require(ReplicatedStorage.Shared.UI.ItemCategory)
 
 local UI_NAME = "HotbarUI"
 local HOLDER_NAME = "Holder"
@@ -95,11 +94,12 @@ local function paint(name: string)
 		slot.stroke.Visible = filled
 	end
 
-	-- Category fills, rarity outlines — same rule the inventory cell follows
+	-- Rarity owns both fill and border — same rule the inventory cell follows
 	if entry then
-		slot.button.BackgroundColor3 = ItemCategory.get(entry.category).Background
+		local rarity = ItemRarity.get(entry.rarity)
+		slot.button.BackgroundColor3 = rarity.Fill
 		if slot.stroke and slot.stroke:IsA("ImageLabel") then
-			slot.stroke.ImageColor3 = ItemRarity.get(entry.rarity).Border
+			slot.stroke.ImageColor3 = ItemRarity.borderOf(rarity.Fill)
 		end
 	end
 
