@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Data.Weapons)
+local Items = require(ReplicatedStorage.Data.Items)
 
 local HAND_TIMEOUT = 10
 
@@ -12,7 +13,9 @@ type Template = {
 	gripCFrame: CFrame,
 }
 
-local templates: { [number]: Template } = {}
+-- Keyed by item id, not weapon id: what goes in the hand is an item, and a weapon is
+-- only one kind of item
+local templates: { [string]: Template } = {}
 
 local grips: { [Player]: Attachment } = {}
 local mounted: { [Player]: Model } = {}
@@ -28,7 +31,7 @@ local function unmount(player: Player)
 	end
 end
 
-local function mount(player: Player, id: number)
+local function mount(player: Player, id: string)
 	unmount(player)
 
 	local template = templates[id]
@@ -57,13 +60,15 @@ local function mount(player: Player, id: number)
 	mounted[player] = model
 end
 
+-- Mounted off what is HELD, not off what is wielded: carrying an item shows it in the
+-- hand, and only the first M1 promotes it to a weapon. The model is the same either way.
 local function refresh(player: Player)
-	local id = player:GetAttribute(Config.attribute)
-	if type(id) ~= "number" or id == Config.unarmed then
+	local held = player:GetAttribute(Items.heldAttribute)
+	if type(held) ~= "string" or not templates[held] then
 		unmount(player)
 		return
 	end
-	mount(player, id)
+	mount(player, held)
 end
 
 local function onCharacterAdded(player: Player, character: Model)
@@ -93,7 +98,7 @@ end
 
 local function watch(player: Player)
 	watching[player] = {
-		player:GetAttributeChangedSignal(Config.attribute):Connect(function()
+		player:GetAttributeChangedSignal(Items.heldAttribute):Connect(function()
 			refresh(player)
 		end),
 		player.CharacterAdded:Connect(function(character: Model)
@@ -123,14 +128,28 @@ local function unwatch(player: Player)
 	mounted[player] = nil
 end
 
-local function loadTemplates()
-	local folder = ReplicatedStorage:WaitForChild(Config.folder)
+-- Weapons are named by the weapon catalog and live in their own folder; everything else
+-- names its own model. An item with neither is simply never held, and says nothing.
+local function templateNameFor(entry: Items.Entry): (string?, Instance?)
+	if entry.weapon then
+		local weapon = Config.byId[entry.weapon]
+		return (if weapon then weapon.model else nil), ReplicatedStorage:FindFirstChild(Config.folder)
+	end
+	return entry.model, ReplicatedStorage:FindFirstChild(Items.folder)
+end
 
-	for id, entry in Config.byId do
-		local name = entry.model
-		local model = folder:FindFirstChild(name)
+local function loadTemplates()
+	ReplicatedStorage:WaitForChild(Config.folder)
+
+	for id, entry in Items.byId do
+		local name, folder = templateNameFor(entry)
+		if not name then
+			continue
+		end
+
+		local model = folder and folder:FindFirstChild(name)
 		if not model or not model:IsA("Model") then
-			warn(`[WeaponController] missing weapon model "{name}"`)
+			warn(`[WeaponController] missing model "{name}" for item "{id}"`)
 			continue
 		end
 

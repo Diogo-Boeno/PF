@@ -823,6 +823,21 @@ Os três persistem por ProfileStore. A hotbar replica por atributo como sempre; 
 não cabe num atributo e vai por `Net "InventorySync"`, que o client também pede no
 próprio `Start` (`InventoryRequest`).
 
+**Carregar não é empunhar.** Clicar no item o põe na mão como objeto — o modelo monta,
+mas não há classe de combate, animação nem golpe. O primeiro **M1 saca**, e é ele que
+escreve o atributo `Weapon`. Isso existe pra o item poder ser dropado antes de virar arma.
+
+Esse M1 **não golpeia**: as tracks ainda estão carregando, e `LoadAnimation` não é
+instantâneo — um swing pedido no mesmo frame sairia mudo, que lê como input engolido.
+
+Quem monta o modelo é o atributo `Held` (id de item), não `Weapon`. São dois estados
+distintos e é por isso que são dois atributos:
+
+| | `Held` | `Weapon` |
+|---|---|---|
+| escrito por | equipar | primeiro M1 (`UseHeld`) |
+| efeito | modelo na mão | classe, animações, hitbox |
+
 **Estar na mão e estar na hotbar são coisas diferentes.** Equipar escreve `Held` e
 **nunca toca no `Equipment`** — reservar slot no equip foi o que fez uma espada só
 aparecer como duas.

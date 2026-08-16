@@ -114,19 +114,23 @@ function InventoryService.equip(player: Player, id: string?): boolean
 
 	if id == nil then
 		lineage.Held = ""
+		player:SetAttribute(Items.heldAttribute, nil)
 		WeaponService.equip(player, Weapons.unarmed)
 		return true
 	end
 
 	local entry = Items.byId[id]
-	if not entry or not entry.weapon or not owns(lineage, id) then
+	if not entry or not owns(lineage, id) then
 		return false
 	end
 
 	-- Minimum attribute requirements are checked here once items declare them
 
+	-- Only carried, never wielded: it hangs in the hand as a plain object so it can be
+	-- dropped. Drawing it is the first M1, which is what writes the weapon attribute.
 	lineage.Held = id
-	WeaponService.equip(player, entry.weapon)
+	player:SetAttribute(Items.heldAttribute, id)
+	WeaponService.equip(player, Weapons.unarmed)
 	return true
 end
 
@@ -176,8 +180,15 @@ function InventoryService.commitHeld(player: Player): boolean
 	end
 
 	local id = lineage.Held
-	if type(id) ~= "string" or not Items.byId[id] then
+	local entry = if type(id) == "string" then Items.byId[id] else nil
+	if not entry then
 		return false
+	end
+
+	-- Drawing is what turns a carried object into a weapon. Idempotent, so the per-attack
+	-- report that follows costs nothing.
+	if entry.weapon then
+		WeaponService.equip(player, entry.weapon)
 	end
 
 	if slotOf(lineage, id) then

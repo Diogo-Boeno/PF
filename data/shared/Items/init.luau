@@ -10,6 +10,9 @@ export type Entry = {
 	category: string,
 	-- Index into Weapons.byId. Absent means the item cannot be equipped.
 	weapon: number?,
+	-- Model name under ReplicatedStorage.Items. A weapon takes its own from the weapon
+	-- catalog instead; an item with neither simply never shows in the hand.
+	model: string?,
 }
 
 local Items = {
@@ -18,6 +21,14 @@ local Items = {
 
 	-- Keyboard row order, matching the hotbar button names
 	slots = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
+
+	-- Where non-weapon models live, in ReplicatedStorage. Weapons keep their own folder
+	-- because the weapon catalog, not the item catalog, names them.
+	folder = "Items",
+
+	-- Item id in hand. Carrying is not wielding: the model is mounted off this, while
+	-- the combat class waits for `Weapons.attribute`, which the first M1 writes.
+	heldAttribute = "Held",
 
 	-- Framework/State key. The hotbar shows its empty slots only while the bag is open.
 	openState = "InventoryOpen",

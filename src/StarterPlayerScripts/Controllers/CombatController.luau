@@ -7,6 +7,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local Config = require(ReplicatedStorage.Data.Weapons)
+local Items = require(ReplicatedStorage.Data.Items)
 local Net = require(ReplicatedStorage.Shared.Framework.Net)
 local RaycastHitbox = require(ReplicatedStorage.RaycastHitbox)
 local WeaponController = require(script.Parent.WeaponController)
@@ -1066,6 +1067,24 @@ local function uppercut(): boolean
 	return true
 end
 
+-- The first click on a carried item draws it, and that click buys nothing else: the
+-- tracks are still loading, and LoadAnimation is not instant — a swing asked for in the
+-- same frame would simply be silent, which reads as an eaten input.
+local function drawHeld(): boolean
+	local weaponId = player:GetAttribute(Config.attribute)
+	if type(weaponId) == "number" and weaponId ~= Config.unarmed then
+		return false
+	end
+
+	local held = player:GetAttribute(Items.heldAttribute)
+	if type(held) ~= "string" or held == "" then
+		return false
+	end
+
+	Net.FireServer("UseHeld")
+	return true
+end
+
 local function swing()
 	local now = os.clock()
 	if guarding or stunned() or now < staggerUntil or now < dashUntil then
@@ -1500,7 +1519,9 @@ function CombatController.Start()
 		end
 
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			swing()
+			if not drawHeld() then
+				swing()
+			end
 		elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
 			-- A live dash owns the button; crouched with none, it is the uppercut
 			if not cancelDash() then
