@@ -293,9 +293,17 @@ local function bind(model: Instance)
 		end
 	end)
 
+	-- A non-final hit of a multi-hit attack cuts the swing and nothing else: the rig is
+	-- not stunned, so `think` may start the next attack straight away. On the signal
+	-- rather than in the loop because stabs land faster than THINK_INTERVAL.
+	local interrupter = model:GetAttributeChangedSignal(Config.interruptAttribute):Connect(function()
+		cancelSwings(npc)
+	end)
+
 	return function()
 		npc.alive = false
 		silencer:Disconnect()
+		interrupter:Disconnect()
 	end
 end
 

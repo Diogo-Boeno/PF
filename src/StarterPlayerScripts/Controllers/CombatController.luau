@@ -24,6 +24,10 @@ local DASH_KEY = Enum.KeyCode.Q
 local START_MARKER = "Start"
 local END_MARKER = "End"
 
+-- A multi-hit attack fires this once per hit. The name repeats, so the ordinal is
+-- counted from the start of the track rather than read off the marker.
+local HIT_MARKER = "Hit"
+
 -- Optional third event: where the blade lights up to say a parry would land. Authored,
 -- not derived — the window is counted from the defender's F press, so the tell has to
 -- come BEFORE the hitbox opens, and only the animation knows how much before.
@@ -117,6 +121,10 @@ local hitboxModel: Model? = nil
 
 -- Shaped hitboxes: one hit per target per attack, cleared when the window opens
 local shapeHits: { [Humanoid]: boolean } = {}
+
+-- Which hit of the current attack is live. nil for an ordinary single-hit swing.
+local hitOrdinal: number? = nil
+local hitCount = 0
 local sweepConnection: RBXScriptConnection? = nil
 local sweepBox: BoxHandleAdornment? = nil
 
@@ -305,7 +313,7 @@ local function ensureHitbox(): any?
 	new.Visualizer = debugging()
 	new.DebugLog = debugging()
 	new.OnHit:Connect(function(_part: BasePart, hit: Humanoid)
-		Net.FireServer("WeaponHit", hit, activeKind)
+		Net.FireServer("WeaponHit", hit, activeKind, hitOrdinal)
 		if debugging() then
 			print(`[Hitbox] {activeKind}: hit {hit.Parent and hit.Parent.Name or "?"}`)
 		end
@@ -322,7 +330,7 @@ local function report(hit: Humanoid, kind: Kind): boolean
 		return false
 	end
 	shapeHits[hit] = true
-	Net.FireServer("WeaponHit", hit, kind)
+	Net.FireServer("WeaponHit", hit, kind, hitOrdinal)
 	return true
 end
 
@@ -545,22 +553,28 @@ end
 
 -- Played locally first so the swinger never hears its own attack late; the server
 -- echoes it to everyone else
-local function announceSwing(kind: Kind)
+local function announceSwing(kind: Kind, ordinal: number?)
 	if kind == "parried" then
 		return
 	end
 
+	-- The sound rides the animation: a weapon that swings slow has to sound slow
+	local pitch = speedOf(kind)
+
 	local root = rootPart()
 	if root then
-		FxController.play(kind, root.Position, player.Character)
+		FxController.play(kind, root.Position, player.Character, pitch)
 	end
-	Net.FireServer("Swung", kind)
+	Net.FireServer("Swung", kind, ordinal, pitch)
 end
 
-local function startHitbox(kind: Kind)
+local function startHitbox(kind: Kind, ordinal: number?)
 	openedHitbox = true
+	hitOrdinal = ordinal
+	-- Cleared per hit, so each stab of a flurry may land on the same target again
 	table.clear(shapeHits)
-	announceSwing(kind)
+
+	announceSwing(kind, ordinal)
 
 	local spec = hitboxSpecFor(kind)
 	if not spec then
@@ -782,6 +796,8 @@ local function play(track: AnimationTrack)
 
 	openedHitbox = false
 	cancelled = false
+	hitCount = 0
+	hitOrdinal = nil
 	stopLocomotion()
 	setAttackLock(true)
 
@@ -918,6 +934,13 @@ local function buildTrack(target: Animator, id: string, kind: Kind): AnimationTr
 	track:GetMarkerReachedSignal(END_MARKER):Connect(function()
 		reached(END_MARKER)
 		stopHitbox()
+	end)
+
+	-- Same marker every time, so the ordinal is a counter reset by `play`
+	track:GetMarkerReachedSignal(HIT_MARKER):Connect(function()
+		reached(HIT_MARKER)
+		hitCount += 1
+		startHitbox(kind, hitCount)
 	end)
 
 	-- Fired on the attacker's own blade and echoed to everyone: the defender is the
@@ -1336,6 +1359,24 @@ local function onStagger(duration: any, lockGuard: any)
 	stopGuard()
 end
 
+-- A non-final hit of a multi-hit attack. It cuts whatever you were swinging but leaves
+-- the guard and `staggerUntil` alone, because parrying out of the rest of the flurry is
+-- the intended answer — and dropping the guard here would deny it: `parryRearm` means a
+-- re-press this soon still blocks without ever arming.
+local function onInterrupt(speed: any, duration: any)
+	queued = false
+
+	local active = current
+	if active then
+		cancelled = true
+		active:Stop(FADE)
+	end
+
+	if type(speed) == "number" and type(duration) == "number" then
+		MovementController.drag(speed, duration)
+	end
+end
+
 -- Played on the one who CAUGHT the blow: their own blade absorbing it. The guard is
 -- not dropped and `current` is untouched, so this rides over the held block and the
 -- hold survives it — being rewarded for a parry must not cost the stance.
@@ -1605,6 +1646,7 @@ function CombatController.Start()
 	Net.On("Launch", applyLaunch)
 	Net.On("ParryImpact", onParryImpact)
 	Net.On("Stagger", onStagger)
+	Net.On("Interrupt", onInterrupt)
 end
 
 return CombatController

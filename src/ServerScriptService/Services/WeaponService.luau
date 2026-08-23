@@ -15,7 +15,7 @@ local lastSwingFx: { [Player]: { [string]: number } } = {}
 
 -- Weak keys so a dead target's entry goes away without a sweep
 local WEAK_KEYS = { __mode = "k" }
-local lastHit: { [Player]: { [Humanoid]: number } } = {}
+local lastHit: { [Player]: { [Humanoid]: { [number]: number } } } = {}
 
 -- nil means not holding guard at all
 local guardStart: { [Player]: number } = {}
@@ -82,6 +82,22 @@ local function silence(character: Model?, duration: number, lockGuard: boolean?)
 		Net.FireClient("Stagger", victim, duration, lockGuard)
 	else
 		character:SetAttribute(Config.stunUntilAttribute, os.clock() + duration)
+	end
+end
+
+-- Cuts a body's current swing without stunning it: what a non-final hit of a multi-hit
+-- attack costs. Same two routes as `silence`, and for the same reason — forgetting the
+-- server-owned branch is silent, and the rig simply keeps swinging.
+local function interrupt(character: Model?, drag: any)
+	if not character then
+		return
+	end
+
+	local victim = Players:GetPlayerFromCharacter(character)
+	if victim then
+		Net.FireClient("Interrupt", victim, if drag then drag.speed else nil, if drag then drag.duration else nil)
+	else
+		character:SetAttribute(Config.interruptAttribute, os.clock())
 	end
 end
 
@@ -281,7 +297,7 @@ end
 
 -- The swinger already played this locally, so it is echoed to everyone else only.
 -- Rate limited because it is the one Fx a client gets to ask for.
-local function onSwungReport(player: Player, event: any)
+local function onSwungReport(player: Player, event: any, ordinal: any, rate: any)
 	if type(event) ~= "string" or Config.swingFx[event] ~= true then
 		return
 	end
@@ -294,11 +310,15 @@ local function onSwungReport(player: Player, event: any)
 		lastSwingFx[player] = seen
 	end
 
+	-- Each stab of a flurry is its own event to the throttle. Sharing one key, the same
+	-- 0.15s that keeps a spammer quiet would swallow two thirds of a three-hit critical.
+	local key = if type(ordinal) == "number" then `{event}{ordinal}` else event
+
 	local now = os.clock()
-	if now - (seen[event] or 0) < Config.swingFxCooldown then
+	if now - (seen[key] or 0) < Config.swingFxCooldown then
 		return
 	end
-	seen[event] = now
+	seen[key] = now
 
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
@@ -306,9 +326,14 @@ local function onSwungReport(player: Player, event: any)
 		return
 	end
 
+	-- Cosmetic, so the client owns it for its own weapon — but bounded, because an
+	-- unbounded PlaybackSpeed is a noise weapon pointed at everyone else
+	local range = Config.swingFxPitch
+	local pitch = if type(rate) == "number" then math.clamp(rate, range.Min, range.Max) else 1
+
 	for _, other in Players:GetPlayers() do
 		if other ~= player then
-			Net.FireClient("Fx", other, event, root.Position, character)
+			Net.FireClient("Fx", other, event, root.Position, character, pitch)
 		end
 	end
 end
@@ -349,7 +374,7 @@ end
 
 -- Damage lives with whoever owns the move: the flourish is universal, the rest
 -- belong to the class. A kind the class does not declare is a forged report.
-local function damageFor(class: any, kind: any): number?
+local function damageFor(class: any, kind: any, ordinal: any): number?
 	if kind == "swing" then
 		return class.damage
 	end
@@ -360,7 +385,15 @@ local function damageFor(class: any, kind: any): number?
 		return Config.uppercut.damage
 	end
 	if kind == "heavy" then
-		return if class.heavy then class.heavy.damage else nil
+		if not class.heavy then
+			return nil
+		end
+		-- A multi-hit critical prices each stab separately; the ordinal has to name one
+		local hits = class.heavy.hits
+		if hits then
+			return if type(ordinal) == "number" then hits[ordinal] else nil
+		end
+		return class.heavy.damage
 	end
 	if kind == "aerial" then
 		return if class.aerial then class.aerial.damage else nil
@@ -371,7 +404,11 @@ end
 -- Guard resolution, split out because an NPC swing has to go through the exact same
 -- parry and block rules a player swing does. `attacker` is nil when nobody owns the
 -- swing, which is why an NPC neither gains posture from parrying nor eats it.
-function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, attacker: Player?): string
+--
+-- `chain` present means more hits of this attack are still coming, and it carries the
+-- drag they apply. Only the last hit of a flurry buys a turn — from a clean hit OR from
+-- a parry — so an early one interrupts instead of stunning and never locks the attacker.
+function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, attacker: Player?, chain: any?): string
 	local defender = if target.Parent and target.Parent:IsA("Model") then target.Parent else nil
 	local victim = Players:GetPlayerFromCharacter(target.Parent)
 	local now = os.clock()
@@ -379,7 +416,11 @@ function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, 
 	if not victim then
 		hurt(target, damage)
 		broadcastFx("hit", target.RootPart, defender)
-		silence(defender, hitstunOf(class))
+		if chain then
+			interrupt(defender, chain.drag)
+		else
+			silence(defender, hitstunOf(class))
+		end
 		return "hit"
 	end
 
@@ -410,7 +451,11 @@ function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, 
 
 			-- Only a clean hit staggers. Blocking or parrying is the reward for
 			-- defending, so neither may cost the defender their turn.
-			silence(defender, hitstunOf(class))
+			if chain then
+				interrupt(defender, chain.drag)
+			else
+				silence(defender, hitstunOf(class))
+			end
 			return "hit"
 		end
 
@@ -441,9 +486,13 @@ function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, 
 		end
 
 		if attacker then
+			-- Posture lands on every parried stab: turning away a whole flurry should
+			-- move the bar three times. Only the turn itself waits for the last one.
 			addPosture(attacker, Guard.parryPosture)
-			-- Guard locked too: being parried costs the turn outright, unlike hitstun
-			Net.FireClient("Stagger", attacker, Guard.parriedLock, true)
+			if not chain then
+				-- Guard locked too: being parried costs the turn outright, unlike hitstun
+				Net.FireClient("Stagger", attacker, Guard.parriedLock, true)
+			end
 		end
 
 		if Config.debugHitbox.enabled then
@@ -543,7 +592,7 @@ end
 
 -- The client detects; the server decides. Nothing here trusts the report itself,
 -- only that the attacker could plausibly have made it.
-local function onHitReport(player: Player, target: any, kind: any)
+local function onHitReport(player: Player, target: any, kind: any, ordinal: any)
 	if typeof(target) ~= "Instance" or not target:IsA("Humanoid") then
 		return
 	end
@@ -559,7 +608,7 @@ local function onHitReport(player: Player, target: any, kind: any)
 		return
 	end
 
-	local damage = damageFor(class, kind)
+	local damage = damageFor(class, kind, ordinal)
 	if not damage then
 		return
 	end
@@ -590,13 +639,26 @@ local function onHitReport(player: Player, target: any, kind: any)
 		lastHit[player] = seen
 	end
 
+	-- Keyed by ordinal as well as target: the three stabs of a flurry all land inside
+	-- one cooldown window, while repeating the same stab stays barred
+	local slot = seen[target]
+	if not slot then
+		slot = {}
+		seen[target] = slot
+	end
+
+	local key = if type(ordinal) == "number" then ordinal else 0
 	local now = os.clock()
-	if now - (seen[target] or 0) < Config.hitCooldown then
+	if now - (slot[key] or 0) < Config.hitCooldown then
 		return
 	end
-	seen[target] = now
+	slot[key] = now
 
-	if WeaponService.resolveHit(target, damage, class, player) ~= "hit" then
+	-- More stabs still to come, so this one interrupts instead of buying the turn
+	local hits = if kind == "heavy" and class.heavy then class.heavy.hits else nil
+	local chain = if hits and type(ordinal) == "number" and ordinal < #hits then { drag = class.heavy.drag } else nil
+
+	if WeaponService.resolveHit(target, damage, class, player, chain) ~= "hit" then
 		return
 	end
 
@@ -669,6 +731,7 @@ function WeaponService.Start()
 	Net.Register("Launch")
 	Net.Register("ParryImpact")
 	Net.Register("Stagger")
+	Net.Register("Interrupt")
 	Net.Register("Fx")
 
 	Players.PlayerRemoving:Connect(function(player)

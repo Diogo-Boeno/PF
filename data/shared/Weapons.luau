@@ -1,5 +1,7 @@
 --!strict
 
+local Movesets = require(script.Parent.Movesets)
+
 local Weapons = {
 	attribute = "Weapon",
 	unarmed = 0,
@@ -108,153 +110,13 @@ local Weapons = {
 		},
 	},
 
-	-- Animations layer weight -> type -> class, because the asset names already say so:
-	-- `Heavy*` serves every heavy weapon, `Greataxe*` every greataxe, and
-	-- `GreataxeTwoHands*` only that grip. A weapon's own `animations` is the last word.
-	--
-	-- Only what actually varies lives here; everything else stays on the class.
-	weights = {
-		-- Hitstun belongs to the weight, not the move: a heavy weapon buys a longer turn.
-		-- Spamming M1 with one used to lose the trade because the victim recovered before
-		-- the swing cycle came round again.
-		Light = { hitstun = 0.6 },
-		Medium = { hitstun = 0.9 },
-		Heavy = {
-			hitstun = 1.2,
-			-- Ignores the weapon's swing speed by design: a slow weapon still uppercuts
-			-- fast, and the damage scaling is what pays for it
-			uppercut = { animation = "rbxassetid://125721624070954" },
-		},
-	},
-
-	types = {
-		Greataxe = {
-			block = "rbxassetid://83891377944727",
-			parry = "rbxassetid://103985732950863",
-
-			-- Crouching is posture, but a greataxe is too big to hold the universal pose
-			crouch = {
-				idle = "rbxassetid://108592538476304",
-				walk = "rbxassetid://135450333455556",
-			},
-
-			-- The critical IS the heavy for this weapon; there is no separate move
-			heavy = {
-				animation = "rbxassetid://103950024178748",
-				-- PLACEHOLDER: copied from the sword, never tuned for a greataxe
-				damage = 26,
-				knockback = 26,
-				hitbox = {
-					shape = "cast",
-					size = Vector3.new(4, 4, 2),
-					offset = Vector3.new(0, 0, -1),
-					range = 9,
-				},
-			},
-			aerial = {
-				animation = "rbxassetid://81794080454334",
-				-- PLACEHOLDER: copied from the sword, never tuned for a greataxe
-				damage = 20,
-				hitbox = {
-					shape = "sweep",
-					size = Vector3.new(7, 8, 7),
-					offset = Vector3.new(0, -2, -2),
-				},
-				dashSpeed = 30,
-				dashFall = -8,
-				dashTime = 0.35,
-			},
-		},
-	},
-
-	-- A class owns only what it can do; a missing key IS the availability rule
-	classes = {
-		SwordOneHand = {
-			weight = "Medium",
-			type = "Sword",
-			-- The reference every other weapon is measured against
-			speed = 1,
-			damage = 12,
-			idle = "rbxassetid://121555066325081",
-			walk = "rbxassetid://131162423358667",
-			swings = {
-				"rbxassetid://98752333248597",
-				"rbxassetid://122778194882345",
-				"rbxassetid://109187943328490",
-			},
-
-			-- Seconds from the start of the animation to where its `Start` marker sits,
-			-- read straight off the editor timeline. The parry tell fires
-			-- `guard.parryWindow` before this.
-			--
-			-- Measured rather than guessed by code: a track played at weight 0 does not
-			-- report markers, and there is no runtime way to ask an animation where its
-			-- events are. One number per move beats three failed inference attempts.
-			hitAt = 0.50,
-			heavy = {
-				animation = "rbxassetid://97463310555309",
-				damage = 26,
-				knockback = 26,
-				-- A thrust is a line with thickness. `range` is the reach, so it stops
-				-- being hostage to how long the blade mesh happens to be
-				hitbox = {
-					shape = "cast",
-					size = Vector3.new(4, 4, 2),
-					offset = Vector3.new(0, 0, -1),
-					range = 9,
-				},
-			},
-			block = "rbxassetid://121940421100599",
-			parry = "rbxassetid://121011560408838",
-			-- Played on whoever GETS parried. A class with only `right` never rolls
-			parried = {
-				left = "rbxassetid://92048474041706",
-				right = "rbxassetid://81404279835578",
-			},
-			-- No `chip` key means a block off this weapon costs no health at all
-			aerial = {
-				animation = "rbxassetid://138038196043233",
-				damage = 20,
-				-- A dive hits whoever is in its path, so the box rides along per frame
-				hitbox = {
-					shape = "sweep",
-					size = Vector3.new(7, 8, 7),
-					offset = Vector3.new(0, -2, -2),
-				},
-				-- Held for dashTime, not applied once: a single impulse lets gravity
-				-- bend it into a jump arc, which is the opposite of a glide
-				dashSpeed = 30,
-				-- Near-zero sink is what reads as gliding instead of falling
-				dashFall = -8,
-				dashTime = 0.35,
-			},
-		},
-
-		GreataxeTwoHand = {
-			weight = "Heavy",
-			type = "Greataxe",
-			-- Against the medium sword at 1x. Assumes M1, aerial and flourish are authored
-			-- to `swingBase`; anything already made heavy gets slowed twice.
-			speed = 0.83,
-			-- PLACEHOLDER: copied from the sword, never tuned for a greataxe
-			damage = 12,
-			idle = "rbxassetid://77740771646689",
-			walk = "rbxassetid://79529144099802",
-			swings = {
-				"rbxassetid://111269660748188",
-				"rbxassetid://126576927120908",
-				"rbxassetid://86876023680893",
-			},
-
-			-- PLACEHOLDER: never measured. Read the seconds from the start of each swing
-			-- to its `Start` marker on the editor timeline, at 1x, and put the real
-			-- number here — the parry tell has nothing else to go on.
-			hitAt = 0.5,
-
-			-- Only the right side is authored, so nothing is ever rolled
-			parried = { right = "rbxassetid://124034155026056" },
-		},
-	},
+	-- Animations layer weight -> type -> moveset, because the asset names already say
+	-- so: `Heavy*` serves every heavy weapon, `Greataxe*` every greataxe. They live in
+	-- Data.Movesets, one file per moveset, and arrive already flattened — nothing here
+	-- or downstream learns the layering exists.
+	weights = Movesets.weights,
+	types = Movesets.types,
+	classes = Movesets.classes,
 
 	-- One class per grip. A grip the weapon has no class for cannot be switched to,
 	-- which is what keeps a one-handed greataxe off until its animations exist.
@@ -265,6 +127,7 @@ local Weapons = {
 	byId = {
 		{ model = "Sword", classes = { OneHand = "SwordOneHand" } },
 		{ model = "Greataxe", classes = { TwoHand = "GreataxeTwoHand" } },
+		{ model = "Dagger", classes = { OneHand = "DaggerOneHand" } },
 	},
 
 	-- Every attack the swing speed scales is authored to this length, so the multiplier
@@ -349,6 +212,10 @@ local Weapons = {
 	},
 	swingFxCooldown = 0.15,
 
+	-- The swing sound rides the animation, so its pitch is the same multiplier. The
+	-- client owns that number for its own weapon; this is only the bound it is held to.
+	swingFxPitch = NumberRange.new(0.5, 2),
+
 	-- Sanity bound on a reported hit, not gameplay reach. Wide enough to absorb lag
 	maxHitDistance = 18,
 
@@ -361,6 +228,10 @@ local Weapons = {
 	-- On the character, as a deadline. Players are silenced through the `Stagger`
 	-- remote; a server-owned NPC has no client to send that to, so it reads this.
 	stunUntilAttribute = "StunnedUntil",
+
+	-- Timestamp of the last interrupt, for the same reason: a server-owned rig has no
+	-- client to receive the remote. A non-final hit cuts its swing without stunning it.
+	interruptAttribute = "InterruptedAt",
 	parryLockAttribute = "ParryLocked",
 
 	-- On the character, not the Player: NPCs carry these too, and they die with the rig
@@ -406,38 +277,8 @@ local Weapons = {
 	},
 }
 
--- Flattens weight -> type -> class into the class itself, so every consumer keeps
--- reading one table and never learns the layering exists.
-local function overlay(into: any, patch: any?)
-	if not patch then
-		return
-	end
-
-	for key, value in patch do
-		if type(value) == "table" and type(into[key]) == "table" then
-			local merged = table.clone(into[key])
-			for inner, entry in value do
-				merged[inner] = entry
-			end
-			into[key] = merged
-		else
-			into[key] = value
-		end
-	end
-end
-
-for name, class in Weapons.classes do
-	local resolved = {}
-	overlay(resolved, Weapons.weights[class.weight])
-	overlay(resolved, Weapons.types[class.type])
-	overlay(resolved, class)
-	Weapons.classes[name] = resolved
-end
-
 export type Weapons = typeof(Weapons)
 
-table.freeze(Weapons.weights)
-table.freeze(Weapons.types)
 table.freeze(Weapons.rig)
 table.freeze(Weapons.crouch)
 table.freeze(Weapons.uppercut)
@@ -450,7 +291,6 @@ table.freeze(Weapons.swingFx)
 table.freeze(Weapons.otherGrip)
 table.freeze(Weapons.flourish)
 table.freeze(Weapons.guard)
-table.freeze(Weapons.classes)
 table.freeze(Weapons.byId)
 
 return table.freeze(Weapons)

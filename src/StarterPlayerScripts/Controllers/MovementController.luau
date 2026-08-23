@@ -37,6 +37,10 @@ local sprintTrack: AnimationTrack? = nil
 local landTrack: AnimationTrack? = nil
 local connections: { RBXScriptConnection } = {}
 local baseWalkSpeed = 0
+
+-- A slow bought by taking a hit, as a deadline plus the speed it caps at
+local dragUntil = 0
+local dragSpeed = 0
 local runSpeed = 0
 local grounded = false
 local fallStartY: number? = nil
@@ -51,13 +55,34 @@ local function applyWalkSpeed()
 		return
 	end
 
+	local speed
 	if crouching then
-		current.WalkSpeed = Weapons.crouch.speed
+		speed = Weapons.crouch.speed
 	elseif sprintHeld then
-		current.WalkSpeed = Config.sprintSpeed
+		speed = Config.sprintSpeed
 	else
-		current.WalkSpeed = baseWalkSpeed
+		speed = baseWalkSpeed
 	end
+
+	-- A drag caps, never raises: crouching is already slower than anything that drags
+	if os.clock() < dragUntil then
+		speed = math.min(speed, dragSpeed)
+	end
+
+	current.WalkSpeed = speed
+end
+
+-- Slowed without being stunned: what a non-final hit of a multi-hit attack costs.
+-- Extends rather than replaces, so overlapping hits never shorten the slow.
+function MovementController.drag(speed: number, duration: number)
+	local now = os.clock()
+
+	-- Read before the deadline moves: overlapping drags keep the slower of the two
+	dragSpeed = if now < dragUntil then math.min(dragSpeed, speed) else speed
+	dragUntil = math.max(dragUntil, now + duration)
+
+	applyWalkSpeed()
+	task.delay(duration, applyWalkSpeed)
 end
 
 local function evaluateSprint()
@@ -146,6 +171,8 @@ local function setupCharacter(character: Model)
 
 	baseWalkSpeed = newHumanoid.WalkSpeed
 	grounded = true
+	-- A new body is not carrying the last one's slow
+	dragUntil = 0
 
 	-- A new body stands up; the attribute has to agree with that
 	crouching = false

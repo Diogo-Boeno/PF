@@ -35,7 +35,7 @@ end
 
 -- Attachment rather than a Part: a positional sound needs a point in the world,
 -- not a body, and this spawns no physics for the engine to solve
-local function playSound(name: string, position: Vector3)
+local function playSound(name: string, position: Vector3, pitch: number?)
 	local folder = sounds
 	local template = folder and folder:FindFirstChild(name)
 	if not template or not template:IsA("Sound") then
@@ -49,10 +49,17 @@ local function playSound(name: string, position: Vector3)
 	anchor.Parent = workspace.Terrain
 
 	local sound = template:Clone()
+	-- Multiplied, not assigned: the template may already be tuned off 1
+	if pitch then
+		sound.PlaybackSpeed *= pitch
+	end
 	sound.Parent = anchor
 	sound:Play()
 
-	Debris:AddItem(anchor, sound.TimeLength > 0 and sound.TimeLength + 0.5 or 5)
+	-- TimeLength is the unpitched length, so a slowed sound outlives it and would be
+	-- cut off mid-swing
+	local life = if sound.TimeLength > 0 then sound.TimeLength / sound.PlaybackSpeed + 0.5 else 5
+	Debris:AddItem(anchor, life)
 end
 
 -- Clones the EMITTERS into the host attachment, never the attachment itself: an
@@ -223,7 +230,7 @@ end
 
 -- `event` keys into every table, so one name carries sound, particle and outline.
 -- `subject` is the character it happened to, when there is one.
-function FxController.play(event: string, position: Vector3, subject: Model?)
+function FxController.play(event: string, position: Vector3, subject: Model?, pitch: number?)
 	trace(
 		`play "{event}" subject={if subject then subject.Name else "nil"}`
 			.. ` sound={Config.sound[event] ~= nil} effect={Config.effect[event] ~= nil}`
@@ -234,7 +241,7 @@ function FxController.play(event: string, position: Vector3, subject: Model?)
 	if list then
 		local name = pick(list)
 		if name then
-			playSound(name, position)
+			playSound(name, position, pitch)
 		end
 	end
 
@@ -302,8 +309,8 @@ function FxController.Start()
 	end)
 
 	-- Last, because Net.On yields on WaitForChild
-	Net.On("Fx", function(event: string, position: Vector3, subject: Model?)
-		FxController.play(event, position, subject)
+	Net.On("Fx", function(event: string, position: Vector3, subject: Model?, pitch: number?)
+		FxController.play(event, position, subject, pitch)
 	end)
 
 	Net.On("Telegraph", function(event: string, subject: Model?)
