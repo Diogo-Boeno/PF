@@ -16,14 +16,16 @@ return {
 		109187943328490,
 	},
 
-	-- Seconds from the start of the animation to where its `Start` marker sits, read
-	-- straight off the editor timeline. The parry tell fires `guard.parryWindow` before
-	-- this.
+	-- Seconds from the start of the animation to where its `Start` marker sits. The parry
+	-- tell fires `guard.parryWindow` before this.
 	--
 	-- Measured rather than guessed by code: a track played at weight 0 does not report
 	-- markers, and there is no runtime way to ask an animation where its events are.
-	-- One number per move beats three failed inference attempts.
-	hitAt = 0.50,
+	--
+	-- 0.45 comes off the running game, not the editor ruler: telegraph to Start marker
+	-- clocked six times at 0.449s. The old 0.50 overstated it, and the tell paid for it —
+	-- an overstated hitAt schedules the warning against a hit that arrives sooner.
+	hitAt = 0.45,
 
 	block = 121940421100599,
 	parry = 121011560408838,

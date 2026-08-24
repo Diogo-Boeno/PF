@@ -130,6 +130,15 @@ local Weapons = {
 		{ model = "Dagger", classes = { OneHand = "DaggerOneHand" } },
 	},
 
+	-- Which attacks the weapon's swing speed scales. The heavy is outside it by design
+	-- and the uppercut runs at its own fixed pace. Read by the client for track speed and
+	-- by the server for when a swing is going to land.
+	swingScaled = {
+		swing = true,
+		flourish = true,
+		aerial = true,
+	},
+
 	-- Every attack the swing speed scales is authored to this length, so the multiplier
 	-- is the only thing deciding how long it really takes: real = swingBase / speed.
 	-- A track that drifts from it is an authoring mistake and warns at load.
@@ -277,6 +286,47 @@ local Weapons = {
 	},
 }
 
+-- Which table owns this move's own numbers. Swings share the class's, because the three
+-- of them are authored to one base length; everything else can sit elsewhere on the clip.
+local function moveFor(class: any, kind: string): any?
+	if kind == "heavy" or kind == "aerial" then
+		return class[kind]
+	end
+	if kind == "flourish" then
+		return Weapons.flourish
+	end
+	if kind == "uppercut" then
+		return class.uppercut or Weapons.uppercut
+	end
+	return nil
+end
+
+-- Seconds from an attack starting to its hitbox opening, for the move actually swinging.
+-- `hitAt` on the move beats `hitAt` on the class: one number per class lies to every move
+-- whose marker sits elsewhere, and the dagger's critical reaches its first `Hit` a third
+-- earlier than its M1 does.
+--
+-- One function rather than one per caller. The client schedules the parry tell off this
+-- and the server times an NPC's read off it — those two disagreeing is a fight that
+-- cannot be seen.
+function Weapons.windupOf(class: any, kind: string): number?
+	local move = moveFor(class, kind)
+	local hitAt = if type(move) == "table" and type(move.hitAt) == "number" then move.hitAt else class.hitAt
+	if type(hitAt) ~= "number" then
+		return nil
+	end
+
+	-- `hitAt` is read at 1x, so a scaled swing reaches its marker later in real seconds
+	local speed = 1
+	if kind == "uppercut" then
+		speed = Weapons.uppercut.speed
+	elseif Weapons.swingScaled[kind] then
+		speed = if type(class.speed) == "number" then class.speed else 1
+	end
+
+	return hitAt / speed
+end
+
 export type Weapons = typeof(Weapons)
 
 table.freeze(Weapons.rig)
@@ -288,6 +338,7 @@ table.freeze(Weapons.dash.clips)
 table.freeze(Weapons.dash)
 table.freeze(Weapons.debugHitbox)
 table.freeze(Weapons.swingFx)
+table.freeze(Weapons.swingScaled)
 table.freeze(Weapons.otherGrip)
 table.freeze(Weapons.flourish)
 table.freeze(Weapons.guard)

@@ -15,6 +15,9 @@ local FxController = require(script.Parent.FxController)
 local MovementController = require(script.Parent.MovementController)
 
 local FADE = 0.1
+
+-- Giving up on the boot warm-up. Long: it only costs a background thread.
+local WARM_TIMEOUT = 30
 local HEAVY_KEY = Enum.KeyCode.R
 local GRIP_KEY = Enum.KeyCode.Y
 local GUARD_KEY = Enum.KeyCode.F
@@ -211,24 +214,17 @@ end
 -- make the character walk slow.
 local classSpeed = 1
 
--- The only attacks the weapon's swing speed touches. The heavy is outside it by design,
--- and the uppercut runs at its own fixed pace instead.
-local SCALED: { [string]: boolean } = {
-	swing = true,
-	flourish = true,
-	aerial = true,
-}
-
 local function speedOf(kind: string?): number
 	-- Fixed on purpose: a slow weapon still uppercuts fast, and the damage scaling pays
 	if kind == "uppercut" then
 		return Config.uppercut.speed
 	end
-	return if kind and SCALED[kind] then classSpeed else 1
+	return if kind and Config.swingScaled[kind] then classSpeed else 1
 end
 
 local function stunned(): boolean
-	return player:GetAttribute(Config.stunAttribute) == true
+	local character = player.Character
+	return character ~= nil and character:GetAttribute(Config.stunAttribute) == true
 end
 
 local function rootPart(): BasePart?
@@ -758,19 +754,17 @@ local function scheduleTell(track: AnimationTrack)
 
 	local weaponId = player:GetAttribute(Config.attribute)
 	local class = if type(weaponId) == "number" then classFor(weaponId) else nil
-	local hitAt = class and class.hitAt
-	if type(hitAt) ~= "number" then
-		return
-	end
-
 	local kind = kindOf[track]
-	if not kind then
+	if not class or not kind then
 		return
 	end
 
-	-- `hitAt` is read off the editor timeline at 1x, so a slowed swing reaches its
-	-- marker later in real seconds
-	local lead = hitAt / speedOf(kind) - Config.guard.parryWindow
+	local windup = Config.windupOf(class, kind)
+	if not windup then
+		return
+	end
+
+	local lead = windup - Config.guard.parryWindow
 	if lead <= 0 then
 		return
 	end
@@ -879,7 +873,7 @@ end
 -- the only thing deciding real time. Drift is an authoring mistake and silent otherwise:
 -- the move just feels wrong and no number in the code is to blame.
 local function checkBaseLength(track: AnimationTrack, kind: Kind, id: string)
-	if not SCALED[kind] then
+	if not Config.swingScaled[kind] then
 		return
 	end
 
@@ -1531,6 +1525,76 @@ local function buildDashForce(root: BasePart): LinearVelocity
 	return force
 end
 
+-- A clip this client has never played is downloaded the first time it is asked to draw
+-- one. For our own weapon that is hidden by the draw on the first M1, but an NPC's swing
+-- is replicated straight from the server: the marker fires, the damage lands, and the
+-- screen shows nothing until the asset arrives seconds later. That is the attack nobody
+-- can react to.
+--
+-- LoadAnimation and hold, not PreloadAsync: the tracks have to stay alive until they
+-- report a Length, which is the only honest signal the keyframes are actually here.
+local warmed = false
+
+-- Walked rather than listed field by field. A second copy of "where the ids live" is a
+-- copy that goes stale the next time a move gains a key.
+local function collectIds(source: any, into: { string }, seen: { [string]: boolean }, depth: number)
+	if depth > 6 or type(source) ~= "table" then
+		return
+	end
+
+	for _, value in source do
+		if type(value) == "string" then
+			if not seen[value] and string.match(value, "^rbxassetid://") then
+				seen[value] = true
+				table.insert(into, value)
+			end
+		elseif type(value) == "table" then
+			collectIds(value, into, seen, depth + 1)
+		end
+	end
+end
+
+local function warmAnimations(target: Animator)
+	if warmed then
+		return
+	end
+	warmed = true
+
+	local ids: { string } = {}
+	local seen: { [string]: boolean } = {}
+	collectIds(Config, ids, seen, 0)
+	collectIds(Items, ids, seen, 0)
+
+	local tracks: { AnimationTrack } = {}
+	for _, id in ids do
+		local ok, track = pcall(target.LoadAnimation, target, assetFor(id))
+		if ok and track then
+			table.insert(tracks, track)
+		end
+	end
+
+	local started = os.clock()
+	local pending = #tracks
+
+	while pending > 0 and os.clock() - started < WARM_TIMEOUT do
+		task.wait(0.1)
+		pending = 0
+		for _, track in tracks do
+			if track.Length <= 0 then
+				pending += 1
+			end
+		end
+	end
+
+	if debugging() then
+		print(`[Warm] {#tracks - pending}/{#tracks} animations in {string.format("%.2f", os.clock() - started)}s`)
+	end
+
+	for _, track in tracks do
+		track:Destroy()
+	end
+end
+
 local function setupCharacter(character: Model)
 	teardownCharacter()
 
@@ -1564,12 +1628,25 @@ local function setupCharacter(character: Model)
 
 	loadCrouchTracks(newAnimator, Config.crouch)
 
+	-- Background: nothing here blocks the character coming up
+	task.spawn(warmAnimations, newAnimator)
+
 	local hold = newAnimator:LoadAnimation(assetFor(Items.holdAnimation))
 	hold.Priority = BLOCK_PRIORITY
 	hold.Looped = true
 	holdTrack = hold
 
 	table.insert(connections, character:GetAttributeChangedSignal(Config.crouch.attribute):Connect(updateLocomotion))
+
+	-- A guard break drops the hold; the server already stopped honouring it
+	table.insert(
+		connections,
+		character:GetAttributeChangedSignal(Config.stunAttribute):Connect(function()
+			if stunned() then
+				stopGuard()
+			end
+		end)
+	)
 
 	table.insert(connections, newHumanoid:GetPropertyChangedSignal("MoveDirection"):Connect(updateLocomotion))
 
@@ -1630,13 +1707,6 @@ function CombatController.Start()
 	UserInputService.InputEnded:Connect(function(input: InputObject)
 		if input.KeyCode == GUARD_KEY then
 			guardHeld = false
-			stopGuard()
-		end
-	end)
-
-	-- A guard break drops the hold; the server already stopped honouring it
-	player:GetAttributeChangedSignal(Config.stunAttribute):Connect(function()
-		if stunned() then
 			stopGuard()
 		end
 	end)

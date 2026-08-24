@@ -18,10 +18,13 @@ return {
 		72233542291529,
 	},
 
-	-- PLACEHOLDER: never measured. Read the seconds from the start of each swing to its
-	-- `Start` marker on the editor timeline, at 1x. The parry tell has nothing else to
-	-- go on, and it has to stay well above `guard.parryWindow`.
-	hitAt = 0.5,
+	-- Clocked off the running game: 0.333s from telegraph to the Start marker, six
+	-- samples, which is 0.40 at 1x once `speed` is taken back out.
+	--
+	-- It is still one number for several moves, and the critical is the one it lies
+	-- about: that one reaches its first `Hit` at ~0.28s, so the tell for it lands late.
+	-- Splitting hitAt per move is the real fix.
+	hitAt = 0.40,
 
 	block = 78178221203791,
 	parry = 126781897365999,
@@ -34,6 +37,9 @@ return {
 	-- parrying out of the flurry stays the answer.
 	heavy = {
 		animation = 91658591853822,
+		-- Its own, because the class number is the M1's. Clocked at 0.284s from telegraph
+		-- to the first `Hit`, and the critical ignores swing speed, so this is it at 1x.
+		hitAt = 0.28,
 		-- Per stab, in order. Absent means a single hit worth `damage`, like every other
 		-- weapon. The whole flurry totals one M1: this is pressure, not damage.
 		hits = { 3.83, 3.83, 3.83 },
@@ -53,6 +59,8 @@ return {
 
 	aerial = {
 		animation = 127227507203194,
+		-- 0.268s measured, taken back to 1x through `speed`
+		hitAt = 0.32,
 		-- PLACEHOLDER: copied from the sword, never tuned for a dagger
 		damage = 20,
 		hitbox = {

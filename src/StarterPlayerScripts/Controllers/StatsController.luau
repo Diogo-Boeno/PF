@@ -101,7 +101,8 @@ local function refreshHealth()
 end
 
 local function refreshPosture()
-	local value = player:GetAttribute(Config.postureAttribute)
+	local character = tracked
+	local value = if character then character:GetAttribute(Config.postureAttribute) else nil
 	local max = Config.guard.postureMax
 	-- Already arrives as a smooth ramp from the server's decay, so tweening it
 	-- would only add lag behind a value that is not jumping in the first place
@@ -136,6 +137,7 @@ local function setupCharacter(character: Model)
 
 	table.insert(connections, character:GetAttributeChangedSignal(Config.healthAttribute):Connect(refreshHealth))
 	table.insert(connections, character:GetAttributeChangedSignal(Config.maxHealthAttribute):Connect(refreshHealth))
+	table.insert(connections, character:GetAttributeChangedSignal(Config.postureAttribute):Connect(refreshPosture))
 
 	refreshHealth()
 	refreshPosture()
@@ -143,9 +145,6 @@ end
 
 function StatsController.Start()
 	collectBars()
-
-	player:GetAttributeChangedSignal(Config.postureAttribute):Connect(refreshPosture)
-	refreshPosture()
 
 	player.CharacterAdded:Connect(setupCharacter)
 	player.CharacterRemoving:Connect(teardownCharacter)

@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
 local Net = require(ReplicatedStorage.Shared.Framework.Net)
+local Signal = require(ReplicatedStorage.Shared.Framework.Signal)
 local Config = require(ReplicatedStorage.Data.Weapons)
 local HealthService = require(script.Parent.HealthService)
 
@@ -17,31 +18,70 @@ local lastSwingFx: { [Player]: { [string]: number } } = {}
 local WEAK_KEYS = { __mode = "k" }
 local lastHit: { [Player]: { [Humanoid]: { [number]: number } } } = {}
 
--- nil means not holding guard at all
-local guardStart: { [Player]: number } = {}
-local parriedAt: { [Player]: number } = {}
-local whiffUntil: { [Player]: number } = {}
+-- Everything a body needs to defend itself, keyed by the CHARACTER rather than the
+-- Player. Combat state belongs to the body — the same place HealthService already keeps
+-- Health and Defeated — and that is what lets an NPC parry, block and dodge through the
+-- one set of rules instead of a second implementation.
+type Fighter = {
+	-- nil means not holding guard at all
+	guardStart: number?,
+	parriedAt: number,
+	whiffUntil: number,
 
--- Earned by landing a parry. Valid with F already released, which is what turns one
--- press into a chain instead of one refusal.
-local parryFramesUntil: { [Player]: number } = {}
+	-- Earned by landing a parry. Valid with F already released, which is what turns one
+	-- press into a chain instead of one refusal.
+	parryFramesUntil: number,
 
--- Guarding and being able to parry are different states. A hold that came too soon
--- after the last one still blocks, it just is not armed.
-local parryArmed: { [Player]: boolean } = {}
-local lastGuardPress: { [Player]: number } = {}
+	-- Guarding and being able to parry are different states. A hold that came too soon
+	-- after the last one still blocks, it just is not armed.
+	parryArmed: boolean,
+	lastGuardPress: number,
 
--- Dash invulnerability. Consumed by the first hit it turns away, never a duration
--- that eats a whole flurry — that would beat any guard for free.
-local dodgeUntil: { [Player]: number } = {}
-local lastDash: { [Player]: number } = {}
-local dashRefund: { [Player]: boolean } = {}
-local posture: { [Player]: number } = {}
+	-- Dash invulnerability. Consumed by the first hit it turns away, never a duration
+	-- that eats a whole flurry — that would beat any guard for free.
+	dodgeUntil: number,
+	lastDash: number,
+	dashRefund: boolean,
+	posture: number,
+}
+
+-- Weak keys: a character that leaves takes its record with it, no sweep and no
+-- PlayerRemoving branch to forget
+local fighters: { [Model]: Fighter } = setmetatable({}, WEAK_KEYS) :: any
 
 local WeaponService = {}
 
-local function stunned(player: Player): boolean
-	return player:GetAttribute(Config.stunAttribute) == true
+-- Fired the moment a body commits to an attack, whoever owns it: (attacker, kind,
+-- landsAt). `landsAt` is derived from the class here, never taken from the report, so a
+-- client cannot lie its own swing into unreadable timing.
+--
+-- Everything that reacts to an incoming attack hangs off this — the outline, the parry
+-- glow, and whatever decides an NPC should raise its guard.
+WeaponService.Telegraphed = Signal.new()
+
+-- Created on demand so no caller has to nil-check. The record is cheap and collectable.
+local function fighterOf(character: Model): Fighter
+	local found = fighters[character]
+	if not found then
+		found = {
+			guardStart = nil,
+			parriedAt = 0,
+			whiffUntil = 0,
+			parryFramesUntil = 0,
+			parryArmed = false,
+			lastGuardPress = -math.huge,
+			dodgeUntil = 0,
+			lastDash = -math.huge,
+			dashRefund = false,
+			posture = 0,
+		}
+		fighters[character] = found
+	end
+	return found
+end
+
+local function stunned(character: Model): boolean
+	return character:GetAttribute(Config.stunAttribute) == true
 end
 
 -- Damage never touches Humanoid.Health: the engine's version kills by tearing the rig
@@ -72,7 +112,7 @@ end
 -- `lockGuard` is what separates the two silences. Plain hitstun leaves the guard usable,
 -- so a parry is still the way out; being parried takes even that, which is the turn the
 -- attacker paid for.
-local function silence(character: Model?, duration: number, lockGuard: boolean?)
+function WeaponService.silence(character: Model?, duration: number, lockGuard: boolean?)
 	if not character then
 		return
 	end
@@ -107,61 +147,73 @@ local function hitstunOf(class: any?): number
 	return if type(value) == "number" then value else Config.hitstun
 end
 
-local function setPosture(player: Player, value: number)
+local function setPosture(character: Model, value: number)
 	local clamped = math.clamp(value, 0, Guard.postureMax)
-	posture[player] = clamped
+	fighterOf(character).posture = clamped
 
 	-- Decay steps every frame. Replicating the raw float would be 60 writes a second
-	-- per player for movement no UI can resolve; whole points are what a bar shows.
+	-- per body for movement no UI can resolve; whole points are what a bar shows.
 	local shown = math.floor(clamped)
-	if player:GetAttribute(Config.postureAttribute) ~= shown then
-		player:SetAttribute(Config.postureAttribute, shown)
+	if character:GetAttribute(Config.postureAttribute) ~= shown then
+		character:SetAttribute(Config.postureAttribute, shown)
 	end
 end
 
-local function breakGuard(player: Player)
-	setPosture(player, 0)
-	guardStart[player] = nil
-	player:SetAttribute(Config.stunAttribute, true)
+local function breakGuard(character: Model)
+	setPosture(character, 0)
+	fighterOf(character).guardStart = nil
+	character:SetAttribute(Config.stunAttribute, true)
 
-	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	-- Also down the silence path, which is the only one a server-owned rig reads. A
+	-- guard-broken NPC that kept swinging is exactly the failure `silence` exists for.
+	WeaponService.silence(character, Guard.stunTime)
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	broadcastFx("guardBreak", if humanoid then humanoid.RootPart else nil, character)
 
 	task.delay(Guard.stunTime, function()
-		if player.Parent then
-			player:SetAttribute(Config.stunAttribute, false)
+		if character.Parent then
+			character:SetAttribute(Config.stunAttribute, false)
 		end
 	end)
 end
 
-local function addPosture(player: Player, amount: number)
-	local value = (posture[player] or 0) + amount
+local function addPosture(character: Model, amount: number)
+	local value = fighterOf(character).posture + amount
 	if value >= Guard.postureMax then
-		breakGuard(player)
+		breakGuard(character)
 		return
 	end
-	setPosture(player, value)
+	setPosture(character, value)
 end
 
-local function lockParry(player: Player)
+local function lockParry(character: Model)
 	local expiry = os.clock() + Guard.parryWhiff
-	whiffUntil[player] = expiry
-	player:SetAttribute(Config.parryLockAttribute, true)
+	fighterOf(character).whiffUntil = expiry
+	character:SetAttribute(Config.parryLockAttribute, true)
 
 	task.delay(Guard.parryWhiff, function()
 		-- A later whiff pushed the expiry out; that timer owns the unlock
-		if player.Parent and whiffUntil[player] == expiry then
-			player:SetAttribute(Config.parryLockAttribute, false)
+		if character.Parent and fighterOf(character).whiffUntil == expiry then
+			character:SetAttribute(Config.parryLockAttribute, false)
 		end
 	end)
 end
 
--- A hold that never met an attack inside the window costs the parry, not the block
-local function onGuardRequest(player: Player, holding: any)
-	if holding ~= true then
-		local held = guardStart[player]
-		guardStart[player] = nil
+-- A hold that never met an attack inside the window costs the parry, not the block.
+--
+-- Takes a character, not a Player: this is the whole guard rule set, and an NPC brain
+-- calls it directly rather than growing a second copy that drifts.
+function WeaponService.setGuard(character: Model?, holding: boolean)
+	if not character then
+		return
+	end
+
+	local fighter = fighterOf(character)
+
+	if not holding then
+		local held = fighter.guardStart
+		fighter.guardStart = nil
 
 		-- Released while still inside the parry window — never once it has settled into
 		-- a block. The frames carry the read past the release, so tapping F on a swing
@@ -170,65 +222,73 @@ local function onGuardRequest(player: Player, holding: any)
 		-- Locked out earns nothing: without this, alternating taps produced near
 		-- continuous frames and the whiff penalty never caught up.
 		local now = os.clock()
-		if held and parryArmed[player] and now - held <= Guard.parryWindow and now >= (whiffUntil[player] or 0) then
-			parryFramesUntil[player] = now + Guard.parryFrames
+		if held and fighter.parryArmed and now - held <= Guard.parryWindow and now >= fighter.whiffUntil then
+			fighter.parryFramesUntil = now + Guard.parryFrames
 		end
 		return
 	end
 
-	if guardStart[player] or stunned(player) then
+	if fighter.guardStart or stunned(character) then
 		return
 	end
 
 	local now = os.clock()
-	guardStart[player] = now
+	fighter.guardStart = now
 
 	-- Mashing does not re-open the window. The hold still blocks; it just cannot parry.
-	local armed = now - (lastGuardPress[player] or -math.huge) >= Guard.parryRearm
-	lastGuardPress[player] = now
-	parryArmed[player] = armed
+	local armed = now - fighter.lastGuardPress >= Guard.parryRearm
+	fighter.lastGuardPress = now
+	fighter.parryArmed = armed
 
 	-- Already locked out, or not armed: a plain block, and nothing to schedule
-	if not armed or now < (whiffUntil[player] or 0) then
+	if not armed or now < fighter.whiffUntil then
 		return
 	end
 
 	task.delay(Guard.parryWindow, function()
 		-- Releasing early does not forgive it: pressing F is what commits the parry
-		if (parriedAt[player] or 0) < now then
-			lockParry(player)
+		if fighter.parriedAt < now then
+			lockParry(character)
 		end
 	end)
 end
 
 -- The client owns when a dash starts, so it says so. Nothing here trusts the timing
 -- beyond a cooldown: at worst a cheat buys itself the same window a legit dash gets.
-local function onDashReport(player: Player, cancelled: any)
+--
+-- Character-keyed for the same reason as `setGuard`: an NPC dodge has to buy the same
+-- i-frames a player's does, under the same cooldown.
+function WeaponService.reportDash(character: Model?, cancelled: boolean?)
+	if not character then
+		return
+	end
+
+	local fighter = fighterOf(character)
 	local now = os.clock()
 	local spec = Config.dash
 
 	if cancelled == true then
 		-- Cancelling spends the dash for a longer read. It does not stack with the
 		-- window already running; the later deadline simply wins.
-		dodgeUntil[player] = math.max(dodgeUntil[player] or 0, now + spec.cancelIframes)
+		fighter.dodgeUntil = math.max(fighter.dodgeUntil, now + spec.cancelIframes)
 
 		-- Mirrors the client's refund. Only one is ever outstanding, so this cannot
 		-- become an unlimited pass through the cooldown.
-		dashRefund[player] = true
+		fighter.dashRefund = true
 		return
 	end
 
 	-- Held to the same cooldown the client obeys, so spamming the remote cannot buy
 	-- more invulnerability than dashing legitimately would. A refund is the one
 	-- sanctioned way past it.
-	if dashRefund[player] then
-		dashRefund[player] = nil
-	elseif now - (lastDash[player] or -math.huge) < spec.cooldown then
+	if fighter.dashRefund then
+		fighter.dashRefund = false
+	elseif now - fighter.lastDash < spec.cooldown then
 		return
 	end
 
-	lastDash[player] = now
-	dodgeUntil[player] = now + spec.iframes
+	fighter.lastDash = now
+	fighter.dodgeUntil = now + spec.iframes
 end
 
 -- Right is the only side every class carries, so it is the fallback
@@ -340,21 +400,57 @@ end
 
 -- Telegraph is the windup tell. Same closed set and same rate limit as Swung, because
 -- it is the other Fx a client is allowed to ask for.
-local function onTelegraphReport(player: Player, event: any)
-	if type(event) ~= "string" or Config.swingFx[event] ~= true then
+-- The one place an attack becomes public knowledge. A player reports its own windup; an
+-- NPC's is raised by the server. Both land here, so neither is readable by rules the
+-- other does not obey.
+function WeaponService.telegraph(character: Model?, kind: any, class: any)
+	if not character or type(kind) ~= "string" or Config.swingFx[kind] ~= true then
 		return
 	end
 
-	local character = player.Character
-	if not character then
-		return
-	end
+	local windup = if class then Config.windupOf(class, kind) else nil
+	WeaponService.Telegraphed:Fire(character, kind, if windup then os.clock() + windup else nil)
 
+	local attacker = Players:GetPlayerFromCharacter(character)
 	for _, other in Players:GetPlayers() do
-		if other ~= player then
-			Net.FireClient("Telegraph", other, event, character)
+		-- The attacker already drew its own outline locally
+		if other ~= attacker then
+			Net.FireClient("Telegraph", other, kind, character)
 		end
 	end
+
+	-- A player's client fires its own tell, which honours an authored `Tell` marker. A
+	-- server-owned rig has no client, so the `hitAt` fallback is scheduled here —
+	-- without it an NPC swing carries no parry window for anyone to read.
+	if not attacker and windup then
+		task.delay(math.max(windup - Guard.parryWindow, 0), function()
+			if not character.Parent then
+				return
+			end
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			broadcastFx(kind .. "Tell", if humanoid then humanoid.RootPart else nil, character)
+		end)
+	end
+
+	if Config.debugHitbox.enabled then
+		local when = if windup then string.format("%.2fs", windup) else "unknown (no hitAt)"
+		print(`[Telegraph] {character.Name} {kind}, lands in {when}`)
+	end
+end
+
+-- The server-owned mirror of the client's own announce: a rig has no client to play its
+-- swing locally, so the sound comes from here.
+function WeaponService.announceSwing(character: Model, kind: string)
+	if Config.swingFx[kind] ~= true then
+		return
+	end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	broadcastFx(kind, if humanoid then humanoid.RootPart else nil, character)
+end
+
+local function onTelegraphReport(player: Player, event: any)
+	WeaponService.telegraph(player.Character, event, classFor(player))
 end
 
 -- A grip the equipped weapon has no class for is not a grip the player can hold
@@ -401,48 +497,42 @@ local function damageFor(class: any, kind: any, ordinal: any): number?
 	return nil
 end
 
--- Guard resolution, split out because an NPC swing has to go through the exact same
--- parry and block rules a player swing does. `attacker` is nil when nobody owns the
--- swing, which is why an NPC neither gains posture from parrying nor eats it.
+-- Guard resolution. Both sides are characters, so a player and an NPC run the exact
+-- same parry, block and dodge rules — there is no second implementation to drift.
+-- `attacker` is nil only when nobody owns the swing.
 --
 -- `chain` present means more hits of this attack are still coming, and it carries the
 -- drag they apply. Only the last hit of a flurry buys a turn — from a clean hit OR from
 -- a parry — so an early one interrupts instead of stunning and never locks the attacker.
-function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, attacker: Player?, chain: any?): string
-	local defender = if target.Parent and target.Parent:IsA("Model") then target.Parent else nil
-	local victim = Players:GetPlayerFromCharacter(target.Parent)
-	local now = os.clock()
-
-	if not victim then
-		hurt(target, damage)
-		broadcastFx("hit", target.RootPart, defender)
-		if chain then
-			interrupt(defender, chain.drag)
-		else
-			silence(defender, hitstunOf(class))
-		end
+function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, attacker: Model?, chain: any?): string
+	local parent = target.Parent
+	local defender = if parent and parent:IsA("Model") then parent else nil
+	if not defender then
 		return "hit"
 	end
 
+	local fighter = fighterOf(defender)
+	local now = os.clock()
+
 	-- I-frames answer before anything else and are spent on contact. One dash turns
 	-- away one blow; the rest of the flurry lands.
-	if now < (dodgeUntil[victim] or 0) then
-		dodgeUntil[victim] = 0
+	if now < fighter.dodgeUntil then
+		fighter.dodgeUntil = 0
 		broadcastFx("dodge", target.RootPart, defender)
 		return "dodged"
 	end
 
-	local held = guardStart[victim]
+	local held = fighter.guardStart
 
 	-- Two ways to parry, and the second is the point of this system:
 	--   window — pressed F recently enough, the deliberate read
 	--   frames — earned by the previous parry, and valid with F already released
 	-- Chaining is what lets one well-timed press turn away a flurry.
 	local inWindow = held ~= nil
-		and parryArmed[victim] == true
+		and fighter.parryArmed
 		and now - held <= Guard.parryWindow
-		and now >= (whiffUntil[victim] or 0)
-	local inFrames = now < (parryFramesUntil[victim] or 0)
+		and now >= fighter.whiffUntil
+	local inFrames = now < fighter.parryFramesUntil
 
 	if not inWindow and not inFrames then
 		if not held then
@@ -454,53 +544,60 @@ function WeaponService.resolveHit(target: Humanoid, damage: number, class: any, 
 			if chain then
 				interrupt(defender, chain.drag)
 			else
-				silence(defender, hitstunOf(class))
+				WeaponService.silence(defender, hitstunOf(class))
 			end
 			return "hit"
 		end
 
 		-- Guarding but past the window: an ordinary block
-		addPosture(victim, damage * Guard.postureFactor)
+		addPosture(defender, damage * Guard.postureFactor)
 		broadcastFx("blocked", target.RootPart, defender)
+		if Config.debugHitbox.enabled then
+			print(`[Block] {defender.Name} blocked {if attacker then attacker.Name else "nobody"}`)
+		end
 		if class and class.chip then
 			target:TakeDamage(damage * class.chip)
 		end
 		return "blocked"
 	end
 
-	do
-		parriedAt[victim] = now
+	fighter.parriedAt = now
 
-		-- Every parry pays for the next one
-		parryFramesUntil[victim] = now + Guard.parryFrames
+	-- Every parry pays for the next one
+	fighter.parryFramesUntil = now + Guard.parryFrames
 
-		addPosture(victim, -Guard.parryRelief)
-		broadcastFx("parry", target.RootPart, defender)
+	addPosture(defender, -Guard.parryRelief)
+	broadcastFx("parry", target.RootPart, defender)
 
-		-- The impact animation belongs to whoever caught the blow, and it is their own
-		-- weapon absorbing it — so the side comes from the DEFENDER's class, not the
-		-- attacker's. The attacker just loses their turn.
+	-- The impact animation belongs to whoever caught the blow, and it is their own
+	-- weapon absorbing it — so the side comes from the DEFENDER's class, not the
+	-- attacker's. The attacker just loses their turn.
+	--
+	-- Player-only: it is a client remote, and a server-owned rig has no client. An NPC
+	-- playing its own parry animation is the execution piece, not this one.
+	local victim = Players:GetPlayerFromCharacter(defender)
+	if victim then
 		local defenderSide = parriedSide(classFor(victim))
 		if defenderSide then
 			Net.FireClient("ParryImpact", victim, defenderSide)
 		end
-
-		if attacker then
-			-- Posture lands on every parried stab: turning away a whole flurry should
-			-- move the bar three times. Only the turn itself waits for the last one.
-			addPosture(attacker, Guard.parryPosture)
-			if not chain then
-				-- Guard locked too: being parried costs the turn outright, unlike hitstun
-				Net.FireClient("Stagger", attacker, Guard.parriedLock, true)
-			end
-		end
-
-		if Config.debugHitbox.enabled then
-			local how = if inWindow then "window" else "frames"
-			print(`[Parry] {victim.Name} parried {if attacker then attacker.Name else "an NPC"} ({how})`)
-		end
-		return "parried"
 	end
+
+	if attacker then
+		-- Posture lands on every parried stab: turning away a whole flurry should
+		-- move the bar three times. Only the turn itself waits for the last one.
+		addPosture(attacker, Guard.parryPosture)
+		if not chain then
+			-- Guard locked too: being parried costs the turn outright, unlike hitstun
+			WeaponService.silence(attacker, Guard.parriedLock, true)
+		end
+	end
+
+	if Config.debugHitbox.enabled then
+		local how = if inWindow then "window" else "frames"
+		print(`[Parry] {defender.Name} parried {if attacker then attacker.Name else "nobody"} ({how})`)
+	end
+	return "parried"
 end
 
 -- Non-player targets are owned by the server, so the shove is applied right here.
@@ -658,7 +755,7 @@ local function onHitReport(player: Player, target: any, kind: any, ordinal: any)
 	local hits = if kind == "heavy" and class.heavy then class.heavy.hits else nil
 	local chain = if hits and type(ordinal) == "number" and ordinal < #hits then { drag = class.heavy.drag } else nil
 
-	if WeaponService.resolveHit(target, damage, class, player, chain) ~= "hit" then
+	if WeaponService.resolveHit(target, damage, class, character, chain) ~= "hit" then
 		return
 	end
 
@@ -690,7 +787,7 @@ local function onHitReport(player: Player, target: any, kind: any, ordinal: any)
 
 		-- Longer than the hitstun resolveHit already applied. On the client `max()`
 		-- keeps the longer of the two; on an NPC the later deadline simply wins.
-		silence(targetCharacter, spec.victimStun)
+		WeaponService.silence(targetCharacter, spec.victimStun)
 
 		Net.FireClient("Launch", player, heading, hangY)
 		return
@@ -721,8 +818,14 @@ end
 function WeaponService.Start()
 	Net.On("WeaponHit", onHitReport)
 	Net.On("SetGrip", onGripRequest)
-	Net.On("SetGuard", onGuardRequest)
-	Net.On("Dash", onDashReport)
+	-- Thin adapters: the rules live in the character-keyed functions, and an NPC brain
+	-- calls those same ones
+	Net.On("SetGuard", function(player: Player, holding: any)
+		WeaponService.setGuard(player.Character, holding == true)
+	end)
+	Net.On("Dash", function(player: Player, cancelled: any)
+		WeaponService.reportDash(player.Character, cancelled == true)
+	end)
 	Net.On("Swung", onSwungReport)
 	Net.On("Telegraph", onTelegraphReport)
 
@@ -734,27 +837,19 @@ function WeaponService.Start()
 	Net.Register("Interrupt")
 	Net.Register("Fx")
 
+	-- Only the report rate limits are keyed by Player now. Combat state lives on the
+	-- character and leaves with it, which is what the weak keys are for.
 	Players.PlayerRemoving:Connect(function(player)
 		lastSwingFx[player] = nil
 		lastHit[player] = nil
-		guardStart[player] = nil
-		parriedAt[player] = nil
-		whiffUntil[player] = nil
-		parryFramesUntil[player] = nil
-		parryArmed[player] = nil
-		lastGuardPress[player] = nil
-		dodgeUntil[player] = nil
-		lastDash[player] = nil
-		dashRefund[player] = nil
-		posture[player] = nil
 	end)
 
-	-- Posture always drains. Stepped rather than computed on read so the replicated
-	-- attribute stays honest for whatever UI reads it later.
+	-- Posture always drains, for every body that has any. Stepped rather than computed
+	-- on read so the replicated attribute stays honest for whatever UI reads it later.
 	RunService.Heartbeat:Connect(function(delta: number)
-		for player, value in posture do
-			if value > 0 then
-				setPosture(player, value - Guard.postureDecay * delta)
+		for character, fighter in fighters do
+			if fighter.posture > 0 then
+				setPosture(character, fighter.posture - Guard.postureDecay * delta)
 			end
 		end
 	end)
